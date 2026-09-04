@@ -1,12 +1,8 @@
-# My AI Tutor
+# Beacon AI
 
 A free AI study-buddy app you own end to end — chat instantly as a guest, or
 sign up to save your conversation history. Built with Next.js, TypeScript,
 Tailwind, and Groq for fast open-model inference.
-
-Inspired by the shape of the [klar-AI](https://github.com/abdulrdeveloper/klar-AI)
-project, but simplified so you can run it locally with **one API key and no
-external database** — it uses a local SQLite file instead of Postgres/Redis.
 
 ## What it does
 
@@ -100,4 +96,4 @@ src/
 ## License
 
 MIT — do whatever you want with it.
-"# Beacon-AI" 
+"# Beacon-AI"

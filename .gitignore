@@ -1,0 +1,7 @@
+node_modules
+.next
+out
+tutor.db
+tutor.db-*
+.env.local
+.DS_Store
