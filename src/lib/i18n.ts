@@ -8,7 +8,7 @@ export const LANGS: { key: Lang; label: string }[] = [
 
 const dict: Record<Lang, Record<string, string>> = {
   en: {
-    appName: "Beacon",
+    appName: "My AI Tutor",
     tagline: "Your free AI study buddy",
     placeholder: "Ask me anything about your studies...",
     send: "Send",
@@ -19,7 +19,7 @@ const dict: Record<Lang, Record<string, string>> = {
     guestNotice: "Chatting as guest. Sign up to save your conversations.",
   },
   "roman-ur": {
-    appName: "Beacon",
+    appName: "My AI Tutor",
     tagline: "Aap ka mufeed AI study saathi",
     placeholder: "Apni study ke baare mein kuch bhi poochein...",
     send: "Bhejein",
@@ -30,7 +30,7 @@ const dict: Record<Lang, Record<string, string>> = {
     guestNotice: "Aap guest ke tor par chat kar rahe hain. Sign up karein taake conversations save ho sakein.",
   },
   ur: {
-    appName: "بیکن",
+    appName: "میرا اے آئی ٹیوٹر",
     tagline: "آپ کا مفت اے آئی اسٹڈی ساتھی",
     placeholder: "اپنی پڑھائی کے بارے میں کچھ بھی پوچھیں",
     send: "بھیجیں",
