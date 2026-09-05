@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "My AI Tutor",
+  title: "BeaconAI",
   description: "A free AI study buddy, built with Next.js and Groq",
 };
 
