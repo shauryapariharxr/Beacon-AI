@@ -8,7 +8,7 @@ export const LANGS: { key: Lang; label: string }[] = [
 
 const dict: Record<Lang, Record<string, string>> = {
   en: {
-    appName: "My AI Tutor",
+    appName: "BeaconAI",
     tagline: "Your free AI study buddy",
     placeholder: "Ask me anything about your studies...",
     send: "Send",
