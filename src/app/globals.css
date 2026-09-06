@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Inter:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400..700;1,8..60,400..500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -11,6 +11,14 @@ html, body {
 
 body {
   font-family: "Inter", system-ui, sans-serif;
+  /* Ambient "desk lamp" glow — a single warm light source in the top-left,
+     fading into the ink-navy base. This is the one atmospheric effect the
+     whole UI is built around; everything else stays quiet around it. */
+  background-image:
+    radial-gradient(ellipse 900px 600px at 12% -5%, rgba(232, 163, 61, 0.16), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 100% 20%, rgba(124, 108, 246, 0.08), transparent 60%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
 }
 
 ::-webkit-scrollbar {
@@ -19,4 +27,30 @@ body {
 ::-webkit-scrollbar-thumb {
   background: #272d3a;
   border-radius: 4px;
+}
+
+@layer utilities {
+  /* Standard frosted-glass surface: cards, sidebars, dropdowns. */
+  .glass {
+    background: rgba(255, 255, 255, 0.045);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  }
+
+  /* Higher-contrast glass for content that needs to read clearly on top,
+     e.g. auth forms and the chat input bar. */
+  .glass-strong {
+    background: rgba(23, 27, 35, 0.72);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
+  }
+
+  /* Soft amber glow for the one primary action per screen. */
+  .glow-lamp {
+    box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.4), 0 0 24px rgba(232, 163, 61, 0.25);
+  }
 }

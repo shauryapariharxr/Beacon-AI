@@ -20,6 +20,7 @@ const config: Config = {
       fontFamily: {
         serif: ["'Source Serif 4'", "Georgia", "serif"],
         sans: ["'Inter'", "system-ui", "sans-serif"],
+        mono: ["'JetBrains Mono'", "ui-monospace", "monospace"],
       },
     },
   },

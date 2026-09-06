@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,8 +31,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex items-center justify-center h-screen px-4">
-      <form onSubmit={submit} className="w-full max-w-sm bg-panel border border-border rounded-2xl p-6 space-y-4">
+    <div className="flex flex-col items-center justify-center h-screen px-4 gap-6">
+      <Link href="/" className="flex items-center gap-2.5">
+        <Image src="/logo.svg" alt="" width={28} height={28} />
+        <span className="font-serif text-xl">Beacon</span>
+      </Link>
+      <form onSubmit={submit} className="w-full max-w-sm glass-strong rounded-2xl p-6 space-y-4">
         <div className="font-serif text-2xl mb-2">Log in</div>
         {error && <div className="text-sm text-red-400">{error}</div>}
         <input
@@ -40,7 +45,7 @@ export default function LoginPage() {
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full bg-panel2 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-lamp"
+          className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-lamp"
         />
         <input
           type="password"
@@ -48,11 +53,11 @@ export default function LoginPage() {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full bg-panel2 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-lamp"
+          className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-lamp"
         />
         <button
           disabled={loading}
-          className="w-full bg-lamp text-[#1a1204] font-medium rounded-lg py-2 disabled:opacity-40"
+          className="w-full bg-lamp text-[#1a1204] font-medium rounded-lg py-2 disabled:opacity-40 hover:bg-lamp/90 transition-colors"
         >
           {loading ? "Logging in..." : "Log in"}
         </button>

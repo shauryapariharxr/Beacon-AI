@@ -13,7 +13,7 @@ export function ModelSelector({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as ModelKey)}
-      className="bg-panel2 border border-border rounded-lg px-3 py-1.5 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-lamp"
+      className="glass rounded-lg px-3 py-1.5 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-lamp cursor-pointer"
     >
       {Object.entries(MODELS).map(([key, m]) => (
         <option key={key} value={key}>

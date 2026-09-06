@@ -69,16 +69,18 @@ export default function DashboardPage() {
         userEmail={userEmail}
         onLogout={logout}
       />
-      <div className="flex-1 min-w-0">
-        <ChatWindow
-          isAuthed
-          conversationId={activeId}
-          initialMessages={messages}
-          onConversationCreated={(id) => {
-            setActiveId(id);
-            loadConversations();
-          }}
-        />
+      <div className="flex-1 min-w-0 md:py-3 md:pr-3">
+        <div className="h-full md:glass md:rounded-2xl overflow-hidden">
+          <ChatWindow
+            isAuthed
+            conversationId={activeId}
+            initialMessages={messages}
+            onConversationCreated={(id) => {
+              setActiveId(id);
+              loadConversations();
+            }}
+          />
+        </div>
       </div>
     </div>
   );

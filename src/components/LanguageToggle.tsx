@@ -7,7 +7,7 @@ export function LanguageToggle({ value, onChange }: { value: Lang; onChange: (v:
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as Lang)}
-      className="bg-panel2 border border-border rounded-lg px-3 py-1.5 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-lamp"
+      className="glass rounded-lg px-3 py-1.5 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-lamp cursor-pointer"
     >
       {LANGS.map((l) => (
         <option key={l.key} value={l.key}>

@@ -87,34 +87,37 @@ export function ChatWindow({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <div className="font-serif text-lg">{t(lang, "appName")}</div>
-        <div className="flex gap-2">
-          <ModelSelector value={model} onChange={setModel} />
-          <LanguageToggle value={lang} onChange={setLang} />
-        </div>
+      <div className="shrink-0 flex justify-end gap-2 px-4 pt-3">
+        <ModelSelector value={model} onChange={setModel} />
+        <LanguageToggle value={lang} onChange={setLang} />
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
         {messages.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center text-center text-muted gap-2">
-            <div className="font-serif text-2xl text-ink">{t(lang, "tagline")}</div>
-            {!isAuthed && <div className="text-sm max-w-sm">{t(lang, "guestNotice")}</div>}
+          <div className="h-full flex flex-col items-center justify-center text-center gap-4 px-4">
+            <div className="font-serif text-3xl md:text-4xl text-ink max-w-lg">
+              {t(lang, "tagline")}
+            </div>
+            {!isAuthed && (
+              <div className="glass rounded-xl px-4 py-3 text-sm text-muted max-w-sm">
+                {t(lang, "guestNotice")}
+              </div>
+            )}
           </div>
         )}
         {messages.map((m, i) => (
           <MessageBubble key={i} role={m.role} content={m.content || "…"} />
         ))}
         {error && (
-          <div className="text-sm text-red-400 border border-red-900 bg-red-950/40 rounded-lg px-3 py-2 max-w-[75%]">
+          <div className="text-sm text-red-300 border border-red-900/60 bg-red-950/40 rounded-lg px-3 py-2 max-w-[75%]">
             {error}
           </div>
         )}
         <div ref={bottomRef} />
       </div>
 
-      <div className="border-t border-border p-4">
-        <div className="flex gap-2 items-end">
+      <div className="shrink-0 p-3 md:p-4">
+        <div className="glass-strong rounded-2xl p-2 flex gap-2 items-end max-w-4xl mx-auto w-full">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -126,12 +129,12 @@ export function ChatWindow({
             }}
             placeholder={t(lang, "placeholder")}
             rows={1}
-            className="flex-1 resize-none bg-panel2 border border-border rounded-xl px-4 py-2.5 text-[15px] focus:outline-none focus:ring-1 focus:ring-lamp"
+            className="flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] focus:outline-none placeholder:text-muted"
           />
           <button
             onClick={send}
             disabled={sending || !input.trim()}
-            className="bg-lamp text-[#1a1204] font-medium rounded-xl px-4 py-2.5 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-lamp/90 transition-colors"
+            className="bg-lamp text-[#1a1204] font-medium rounded-xl px-4 py-2.5 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-lamp/90 transition-colors shrink-0"
           >
             {t(lang, "send")}
           </button>
