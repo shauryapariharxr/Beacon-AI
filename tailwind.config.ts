@@ -18,9 +18,9 @@ const config: Config = {
         lampdim: "#8a6428",
       },
       fontFamily: {
-        serif: ["'Source Serif 4'", "Georgia", "serif"],
-        sans: ["'Inter'", "system-ui", "sans-serif"],
-        mono: ["'JetBrains Mono'", "ui-monospace", "monospace"],
+        serif: ["'Space Grotesk'", "system-ui", "sans-serif"],
+        sans: ["'Space Grotesk'", "system-ui", "sans-serif"],
+        mono: ["'Space Grotesk'", "ui-monospace", "monospace"],
       },
     },
   },

@@ -45,6 +45,15 @@ export default function DashboardPage() {
     );
   }
 
+  async function deleteConversation(id: string) {
+    await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+    if (id === activeId) {
+      setActiveId(undefined);
+      setMessages([]);
+    }
+    loadConversations();
+  }
+
   function newChat() {
     setActiveId(undefined);
     setMessages([]);
@@ -66,13 +75,15 @@ export default function DashboardPage() {
         activeId={activeId}
         onSelect={selectConversation}
         onNewChat={newChat}
+        onDelete={deleteConversation}
         userEmail={userEmail}
-        onLogout={logout}
       />
       <div className="flex-1 min-w-0 md:py-3 md:pr-3">
         <div className="h-full md:glass md:rounded-2xl overflow-hidden">
           <ChatWindow
             isAuthed
+            userEmail={userEmail}
+            onLogout={logout}
             conversationId={activeId}
             initialMessages={messages}
             onConversationCreated={(id) => {
