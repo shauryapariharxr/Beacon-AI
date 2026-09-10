@@ -5,20 +5,18 @@
 @tailwind utilities;
 
 html, body {
-  background-color: #0f1218;
+  background-color: #0a0a0b;
   color: #eef0f4;
 }
 
 body {
   font-family: "Space Grotesk", system-ui, sans-serif;
-  /* Ambient "desk lamp" glow — a single warm light source in the top-left,
-     fading into the ink-navy base. This is the one atmospheric effect the
-     whole UI is built around; everything else stays quiet around it. */
+  /* Flat near-black base with a faint grain, no colored glow — matches the
+     plain, high-contrast reference look instead of the old warm-lamp wash. */
   background-image:
-    radial-gradient(ellipse 900px 600px at 12% -5%, rgba(232, 163, 61, 0.16), transparent 60%),
-    radial-gradient(ellipse 700px 500px at 100% 20%, rgba(124, 108, 246, 0.08), transparent 60%);
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
   background-attachment: fixed;
-  background-repeat: no-repeat;
+  background-repeat: repeat;
 }
 
 ::-webkit-scrollbar {
@@ -30,6 +28,13 @@ body {
 }
 
 @layer utilities {
+  /* Flat, flush panel — sidebar and main chat pane. No blur, no floating
+     card; just the near-black page tone with a hairline separator. */
+  .panel-flat {
+    background: rgba(255, 255, 255, 0.015);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
   /* Standard frosted-glass surface: cards, sidebars, dropdowns. */
   .glass {
     background: rgba(255, 255, 255, 0.045);

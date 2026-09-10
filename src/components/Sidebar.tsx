@@ -25,10 +25,10 @@ export function Sidebar({
   const displayName = userEmail ? userEmail.split("@")[0] : "";
 
   return (
-    <div className="w-64 shrink-0 glass flex flex-col h-full rounded-none md:rounded-r-2xl md:my-3 md:ml-3">
+    <div className="w-64 shrink-0 panel-flat border-r flex flex-col h-full">
       <div className="p-4 flex items-center gap-2.5">
         <Link href="/" className="flex items-center gap-2.5">
-          <Image src="/logo.svg" alt="" width={24} height={24} />
+          <Image src="/logo.svg" alt="" width={28} height={28} />
           <span className="font-serif font-semibold text-base">Beacon</span>
         </Link>
       </div>

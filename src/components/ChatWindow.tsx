@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Bot, ArrowUp, LogOut } from "lucide-react";
+import { Bot, ArrowUp, LogOut, ChevronDown } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
 import { ModelSelector } from "./ModelSelector";
 import { LanguageToggle } from "./LanguageToggle";
@@ -95,7 +95,7 @@ export function ChatWindow({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="shrink-0 flex justify-between items-center px-4 pt-3 gap-2">
+      <div className="shrink-0 flex justify-between items-center px-4 py-3 gap-2 border-b border-white/[0.06]">
         <ModelSelector value={model} onChange={setModel} />
         <div className="flex items-center gap-2">
           <LanguageToggle value={lang} onChange={setLang} />
@@ -103,9 +103,12 @@ export function ChatWindow({
             <div className="relative">
               <button
                 onClick={() => setUserMenuOpen((v) => !v)}
-                className="w-8 h-8 rounded-full bg-lamp/90 text-[#1a1204] flex items-center justify-center text-sm font-semibold hover:brightness-105 transition-all"
+                className="flex items-center gap-1 hover:opacity-90 transition-opacity"
               >
-                {userEmail[0].toUpperCase()}
+                <span className="w-8 h-8 rounded-full bg-lamp/90 text-[#1a1204] flex items-center justify-center text-sm font-semibold">
+                  {userEmail[0].toUpperCase()}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-muted" />
               </button>
               {userMenuOpen && (
                 <>

@@ -1,18 +1,46 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { conversations } from "@/lib/schema";
-import { eq, desc } from "drizzle-orm";
+import { conversations, messages } from "@/lib/schema";
+import { eq, asc, and } from "drizzle-orm";
 import { getSessionUserId } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const userId = await getSessionUserId();
-  if (!userId) return NextResponse.json({ conversations: [] });
+  if (!userId) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  const convo = await db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.id, params.id), eq(conversations.userId, userId)));
+
+  if (convo.length === 0) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const rows = await db
     .select()
-    .from(conversations)
-    .where(eq(conversations.userId, userId))
-    .orderBy(desc(conversations.createdAt));
+    .from(messages)
+    .where(eq(messages.conversationId, params.id))
+    .orderBy(asc(messages.createdAt));
 
-  return NextResponse.json({ conversations: rows });
+  return NextResponse.json({ conversation: convo[0], messages: rows });
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const userId = await getSessionUserId();
+  if (!userId) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  const convo = await db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.id, params.id), eq(conversations.userId, userId)));
+
+  if (convo.length === 0) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  await db.delete(messages).where(eq(messages.conversationId, params.id));
+  await db.delete(conversations).where(and(eq(conversations.id, params.id), eq(conversations.userId, userId)));
+
+  return NextResponse.json({ ok: true });
 }

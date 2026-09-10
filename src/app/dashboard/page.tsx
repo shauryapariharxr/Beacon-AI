@@ -8,6 +8,19 @@ import { ChatWindow } from "@/components/ChatWindow";
 type Conversation = { id: string; title: string; createdAt: number };
 type Msg = { role: "user" | "assistant"; content: string };
 
+// Parses a fetch Response as JSON without throwing — a 500 with an empty
+// body (e.g. a route that crashed on the server) would otherwise blow up
+// with "Unexpected end of JSON input" and take the whole page down.
+async function safeJson(res: Response): Promise<any> {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
@@ -19,7 +32,7 @@ export default function DashboardPage() {
   useEffect(() => {
     (async () => {
       const res = await fetch("/api/auth/me");
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!data.user) {
         router.push("/login");
         return;
@@ -31,18 +44,26 @@ export default function DashboardPage() {
   }, []);
 
   async function loadConversations() {
-    const res = await fetch("/api/conversations");
-    const data = await res.json();
-    setConversations(data.conversations || []);
+    try {
+      const res = await fetch("/api/conversations");
+      const data = await safeJson(res);
+      setConversations(data.conversations || []);
+    } catch {
+      setConversations([]);
+    }
   }
 
   async function selectConversation(id: string) {
     setActiveId(id);
-    const res = await fetch(`/api/conversations/${id}`);
-    const data = await res.json();
-    setMessages(
-      (data.messages || []).map((m: any) => ({ role: m.role, content: m.content }))
-    );
+    try {
+      const res = await fetch(`/api/conversations/${id}`);
+      const data = await safeJson(res);
+      setMessages(
+        (data.messages || []).map((m: any) => ({ role: m.role, content: m.content }))
+      );
+    } catch {
+      setMessages([]);
+    }
   }
 
   async function deleteConversation(id: string) {
@@ -78,20 +99,18 @@ export default function DashboardPage() {
         onDelete={deleteConversation}
         userEmail={userEmail}
       />
-      <div className="flex-1 min-w-0 md:py-3 md:pr-3">
-        <div className="h-full md:glass md:rounded-2xl overflow-hidden">
-          <ChatWindow
-            isAuthed
-            userEmail={userEmail}
-            onLogout={logout}
-            conversationId={activeId}
-            initialMessages={messages}
-            onConversationCreated={(id) => {
-              setActiveId(id);
-              loadConversations();
-            }}
-          />
-        </div>
+      <div className="flex-1 min-w-0 h-full overflow-hidden">
+        <ChatWindow
+          isAuthed
+          userEmail={userEmail}
+          onLogout={logout}
+          conversationId={activeId}
+          initialMessages={messages}
+          onConversationCreated={(id) => {
+            setActiveId(id);
+            loadConversations();
+          }}
+        />
       </div>
     </div>
   );
