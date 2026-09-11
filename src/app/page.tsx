@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Fragment } from "react";
+import { useState, Fragment, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { ChevronDown, Check, Minus } from "lucide-react";
@@ -100,14 +100,39 @@ function FaqItem({ q, a }: { q: string; a: string }) {
   );
 }
 
+function OnlineBadge() {
+  const [count, setCount] = useState(() => Math.floor(Math.random() * 40) + 12);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCount((c) => {
+        const delta = Math.floor(Math.random() * 5) - 2;
+        return Math.max(8, Math.min(60, c + delta));
+      });
+    }, 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.05] border border-white/[0.08]">
+      <span className="relative flex h-2.5 w-2.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-400" />
+      </span>
+      <span className="text-sm text-ink font-medium">{count}</span>
+      <span className="text-sm text-muted">online</span>
+    </div>
+  );
+}
+
 export default function HomePage() {
   return (
     <div className="min-h-screen flex flex-col">
       {/* Navbar */}
       <header className="sticky top-0 z-50 flex justify-center pt-3 px-3">
-        <div className="glass w-full max-w-5xl rounded-2xl pl-6 pr-4 py-2.5 flex items-center justify-between">
-          <Link href="/" className="-ml-1">
-            <Image src="/logo.svg" alt="Beacon" width={32} height={32} />
+        <div className="glass-nav w-full max-w-5xl rounded-[50px] pl-6 pr-4 py-2.5 flex items-center justify-between">
+          <Link href="/">
+            <Image src="/logo.svg" alt="Beacon" width={30} height={30} className="ml-1" />
           </Link>
           <nav className="hidden md:flex items-center gap-6 text-sm text-muted">
             <a href="#demo" className="hover:text-ink transition-colors">Try it</a>
@@ -131,6 +156,9 @@ export default function HomePage() {
       <main className="flex-1">
         {/* Hero */}
         <section className="max-w-3xl mx-auto px-4 pt-16 md:pt-24 pb-12 text-center">
+          <div className="mb-6">
+            <OnlineBadge />
+          </div>
           <h1 className="font-serif font-bold text-4xl md:text-5xl leading-tight text-ink">
             Your late-night study companion.
             <br />
@@ -166,6 +194,20 @@ export default function HomePage() {
             <div className="h-[560px]">
               <ChatWindow isAuthed={false} />
             </div>
+          </div>
+          <div className="flex justify-center mt-5">
+            <a
+              href="https://github.com/shauryapariharxr/Beacon-AI"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-sm text-muted hover:text-ink transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
+              </svg>
+              Source code
+            </a>
           </div>
         </section>
 
@@ -290,7 +332,7 @@ export default function HomePage() {
             <Image src="/logo.svg" alt="" width={18} height={18} className="opacity-80" />
             <span>Beacon</span>
           </div>
-          <span>Built for late-night studying.</span>
+          <span>Built for late-night studying by shauryapariharxr</span>
         </div>
       </footer>
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatWindow } from "@/components/ChatWindow";
@@ -28,6 +28,8 @@ export default function DashboardPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const selectIdRef = useRef<string>();
 
   useEffect(() => {
     (async () => {
@@ -55,29 +57,55 @@ export default function DashboardPage() {
 
   async function selectConversation(id: string) {
     setActiveId(id);
+    selectIdRef.current = id;
+    setMessages([]);
+    setChatError(null);
     try {
       const res = await fetch(`/api/conversations/${id}`);
+      // If the user clicked a different conversation while this fetch was
+      // in flight, discard the stale response so it doesn't overwrite.
+      if (selectIdRef.current !== id) return;
+      if (!res.ok) {
+        const data = await safeJson(res);
+        console.error("Failed to load conversation:", res.status, data);
+        if (selectIdRef.current === id) {
+          setChatError(data.error || "Failed to load conversation");
+        }
+        return;
+      }
       const data = await safeJson(res);
+      if (selectIdRef.current !== id) return;
       setMessages(
         (data.messages || []).map((m: any) => ({ role: m.role, content: m.content }))
       );
-    } catch {
-      setMessages([]);
+    } catch (err) {
+      console.error("selectConversation failed:", err);
+      if (selectIdRef.current === id) {
+        setChatError("Failed to load conversation. Check your connection and try again.");
+      }
     }
   }
 
   async function deleteConversation(id: string) {
-    await fetch(`/api/conversations/${id}`, { method: "DELETE" });
-    if (id === activeId) {
+    try {
+      await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+    } catch {
+      // Even if the request failed, still refresh the list to stay in sync.
+    }
+    if (id === activeId || selectIdRef.current === id) {
       setActiveId(undefined);
+      selectIdRef.current = undefined;
       setMessages([]);
+      setChatError(null);
     }
     loadConversations();
   }
 
   function newChat() {
     setActiveId(undefined);
+    selectIdRef.current = undefined;
     setMessages([]);
+    setChatError(null);
   }
 
   async function logout() {
@@ -106,8 +134,10 @@ export default function DashboardPage() {
           onLogout={logout}
           conversationId={activeId}
           initialMessages={messages}
+          chatError={chatError}
           onConversationCreated={(id) => {
             setActiveId(id);
+            setChatError(null);
             loadConversations();
           }}
         />

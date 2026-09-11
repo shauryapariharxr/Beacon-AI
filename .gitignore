@@ -5,3 +5,4 @@ tutor.db
 tutor.db-*
 .env.local
 .DS_Store
+.freebuff

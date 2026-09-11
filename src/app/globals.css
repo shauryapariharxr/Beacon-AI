@@ -11,12 +11,6 @@ html, body {
 
 body {
   font-family: "Space Grotesk", system-ui, sans-serif;
-  /* Flat near-black base with a faint grain, no colored glow — matches the
-     plain, high-contrast reference look instead of the old warm-lamp wash. */
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
-  background-attachment: fixed;
-  background-repeat: repeat;
 }
 
 ::-webkit-scrollbar {
@@ -33,6 +27,15 @@ body {
   .panel-flat {
     background: rgba(255, 255, 255, 0.015);
     border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Navbar glass — subtle frosted glass. Light background + blur gives
+     depth without the scroll-jank of heavy backdrop-filter. */
+  .glass-nav {
+    background: rgba(255, 255, 255, 0.055);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   /* Standard frosted-glass surface: cards, sidebars, dropdowns. */

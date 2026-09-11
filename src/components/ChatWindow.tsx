@@ -16,6 +16,7 @@ export function ChatWindow({
   onLogout,
   conversationId,
   initialMessages = [],
+  chatError,
   onConversationCreated,
 }: {
   isAuthed: boolean;
@@ -23,6 +24,7 @@ export function ChatWindow({
   onLogout?: () => void;
   conversationId?: string;
   initialMessages?: Msg[];
+  chatError?: string | null;
   onConversationCreated?: (id: string) => void;
 }) {
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
@@ -33,24 +35,48 @@ export function ChatWindow({
   const [error, setError] = useState<string | null>(null);
   const [convoId, setConvoId] = useState<string | undefined>(conversationId);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const prevConvoId = useRef(conversationId);
+  const prevConvoRef = useRef(conversationId);
+  const lastSyncedRef = useRef<Msg[]>([]);
 
+  // Keep local state in sync with the parent.
+  // conversationId changes when switching convos or creating a new one.
+  // initialMessages changes when the parent finishes fetching messages.
+  // We only call setMessages when the content actually differs to avoid
+  // unnecessary re-renders / scroll jumps on every parent render.
   useEffect(() => {
-    const wasSwitchingExisting = prevConvoId.current !== undefined;
-    prevConvoId.current = conversationId;
     setConvoId(conversationId);
-    // Only reset messages when switching between existing conversations
-    // (sidebar clicks or New Chat). Don't clear when a new conversation
-    // is just being created (undefined → id) — the user is mid-conversation
-    // and messages are already correct in local state.
-    if (wasSwitchingExisting) {
-      setMessages(initialMessages);
-    }
-  }, [conversationId]);
 
+    const idChanged = prevConvoRef.current !== conversationId;
+    prevConvoRef.current = conversationId;
+
+    if (idChanged) {
+      // Conversation switched — use whatever the parent has (may be [] if
+      // the fetch is still in-flight; will update when it completes).
+      const next = conversationId !== undefined ? initialMessages : [];
+      if (next !== lastSyncedRef.current) {
+        lastSyncedRef.current = next;
+        setMessages(next);
+      }
+    } else if (conversationId !== undefined) {
+      // Same conversation, but initialMessages prop may have updated after
+      // the fetch completed. Sync if content differs.
+      if (initialMessages !== lastSyncedRef.current) {
+        lastSyncedRef.current = initialMessages;
+        setMessages(initialMessages);
+      }
+    }
+  }, [conversationId, initialMessages]);
+
+  // Scroll the messages container only — not the whole page.
+  // scrollIntoView bubbles to all scrollable ancestors which causes
+  // the landing page itself to jump when streaming tokens arrive.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
   }, [messages]);
 
   async function send() {
@@ -141,7 +167,7 @@ export function ChatWindow({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
         {messages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-center gap-3 px-4">
             <div className="w-14 h-14 rounded-full glass flex items-center justify-center mb-1">
@@ -169,6 +195,11 @@ export function ChatWindow({
         {messages.map((m, i) => (
           <MessageBubble key={i} role={m.role} content={m.content || "…"} />
         ))}
+        {chatError && (
+          <div className="text-sm text-amber-300 border border-amber-800/40 bg-amber-950/30 rounded-lg px-3 py-2 max-w-[85%]">
+            {chatError}
+          </div>
+        )}
         {error && (
           <div className="text-sm text-red-300 border border-red-900/60 bg-red-950/40 rounded-lg px-3 py-2 max-w-[75%]">
             {error}

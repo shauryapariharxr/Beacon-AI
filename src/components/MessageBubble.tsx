@@ -4,7 +4,6 @@ import { useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Copy, Check } from "lucide-react";
 
 function CopyButton({ code }: { code: string }) {
@@ -19,8 +18,8 @@ function CopyButton({ code }: { code: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px]
-        bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white transition-all"
+      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px]
+        bg-white/[0.06] hover:bg-white/[0.12] text-gray-400 hover:text-white transition-all"
     >
       {copied ? (
         <>
@@ -35,28 +34,76 @@ function CopyButton({ code }: { code: string }) {
   );
 }
 
+const codeStyle: Record<string, React.CSSProperties> = {
+  "code[class*=\"language-\"]": { background: "transparent", color: "#ffffff", fontFamily: "'Fira Code', 'Fira Mono', Menlo, Consolas, monospace", fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre" },
+  "pre[class*=\"language-\"]": { background: "transparent", color: "#ffffff", fontFamily: "'Fira Code', 'Fira Mono', Menlo, Consolas, monospace", fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre", margin: 0, padding: 0, overflow: "auto" },
+  comment: { color: "#6a737d", fontStyle: "italic" },
+  prolog: { color: "#6a737d" },
+  cdata: { color: "#6a737d" },
+  doctype: { color: "#ffffff" },
+  punctuation: { color: "#9ca3af" },
+  entity: { color: "#ffffff" },
+  "attr-name": { color: "#f0b068" },
+  "class-name": { color: "#f0b068" },
+  boolean: { color: "#f0b068" },
+  constant: { color: "#f0b068" },
+  number: { color: "#f0b068" },
+  atrule: { color: "#f0b068" },
+  keyword: { color: "#d4a0e8" },
+  property: { color: "#f28b8b" },
+  tag: { color: "#f28b8b" },
+  symbol: { color: "#f28b8b" },
+  deleted: { color: "#f28b8b" },
+  important: { color: "#f28b8b" },
+  selector: { color: "#b8e0a0" },
+  string: { color: "#b8e0a0" },
+  char: { color: "#b8e0a0" },
+  builtin: { color: "#b8e0a0" },
+  inserted: { color: "#b8e0a0" },
+  regex: { color: "#b8e0a0" },
+  "attr-value": { color: "#b8e0a0" },
+  variable: { color: "#82c8f0" },
+  operator: { color: "#82c8f0" },
+  function: { color: "#82c8f0" },
+  url: { color: "#7cd8d8" },
+};
+
 function CodeBlock({ language, children }: { language: string; children: string }) {
   return (
-    <div className="relative group my-2 rounded-lg overflow-hidden border border-white/10 bg-[#1e1e2e]">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#181825] border-b border-white/10">
-        <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">{language}</span>
+    <div className="relative group my-3 rounded-2xl overflow-hidden
+      bg-white/[0.04] backdrop-blur-xl
+      border border-white/[0.08]
+      shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+      {/* Outer glass shell — header lives here */}
+      <div className="flex items-center justify-between px-5 py-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57] opacity-80" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e] opacity-80" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#28c840] opacity-80" />
+          </div>
+          <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide ml-1">{language}</span>
+        </div>
         <CopyButton code={children} />
       </div>
-      <SyntaxHighlighter
-        language={language}
-        style={oneDark}
-        customStyle={{
-          margin: 0,
-          padding: "0.75rem",
-          background: "transparent",
-          fontSize: "13px",
-          lineHeight: "1.5",
-          borderRadius: 0,
-        }}
-        wrapLongLines
-      >
-        {children}
-      </SyntaxHighlighter>
+      {/* Inner dark code area */}
+      <div className="mx-4 mb-4 rounded-xl bg-black/40 border border-white/[0.06] px-5 py-4 overflow-x-auto">
+        <SyntaxHighlighter
+          language={language}
+          style={codeStyle}
+          customStyle={{
+            margin: 0,
+            padding: 0,
+            background: "transparent",
+            fontSize: "13px",
+            lineHeight: "1.6",
+            borderRadius: 0,
+          }}
+          wrapLongLines
+        >
+          {children}
+        </SyntaxHighlighter>
+      </div>
     </div>
   );
 }
