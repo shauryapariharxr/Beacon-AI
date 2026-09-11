@@ -34,10 +34,19 @@ export function ChatWindow({
   const [convoId, setConvoId] = useState<string | undefined>(conversationId);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const prevConvoId = useRef(conversationId);
 
   useEffect(() => {
-    setMessages(initialMessages);
+    const wasSwitchingExisting = prevConvoId.current !== undefined;
+    prevConvoId.current = conversationId;
     setConvoId(conversationId);
+    // Only reset messages when switching between existing conversations
+    // (sidebar clicks or New Chat). Don't clear when a new conversation
+    // is just being created (undefined → id) — the user is mid-conversation
+    // and messages are already correct in local state.
+    if (wasSwitchingExisting) {
+      setMessages(initialMessages);
+    }
   }, [conversationId]);
 
   useEffect(() => {

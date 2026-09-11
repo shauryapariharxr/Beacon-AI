@@ -59,3 +59,60 @@ body {
     box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.4), 0 0 24px rgba(232, 163, 61, 0.25);
   }
 }
+
+/* Prose overrides for markdown in chat messages */
+.prose pre {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.prose p {
+  margin: 0.4em 0;
+  line-height: 1.6;
+}
+
+/* Remove prose code styling that leaks into code blocks */
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: inherit;
+  background: transparent;
+  padding: 0;
+  font-weight: inherit;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.prose h1 { font-size: 1.25rem; }
+.prose h2 { font-size: 1.125rem; }
+.prose h3 { font-size: 1rem; }
+
+.prose blockquote {
+  border-left-color: rgba(232, 163, 61, 0.5);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.prose blockquote p {
+  margin: 0;
+}
+
+.prose hr {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.prose img {
+  border-radius: 0.5rem;
+}
+
+.prose :where(thead):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  border-bottom-color: rgba(255, 255, 255, 0.15);
+}
+
+.prose :where(tbody tr):not(:where([class~="not-prose"], [class~="not-prose"], [class~="not-prose"] *)) {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}

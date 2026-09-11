@@ -11,6 +11,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@types/react-syntax-highlighter": "^15.5.13",
     "bcryptjs": "^2.4.3",
     "drizzle-orm": "^0.33.0",
     "jose": "^5.9.3",
@@ -19,7 +20,10 @@
     "next": "^14.2.5",
     "postgres": "^3.4.4",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
