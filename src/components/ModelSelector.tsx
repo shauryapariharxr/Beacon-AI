@@ -1,17 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { Zap, ChevronDown, Check } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Zap, ChevronDown, Check, Lock } from "lucide-react";
 import { MODELS, ModelKey } from "@/lib/models";
 
 export function ModelSelector({
   value,
   onChange,
+  isAuthed,
 }: {
   value: ModelKey;
   onChange: (v: ModelKey) => void;
+  isAuthed: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  // Guests are limited to Flash; the rest unlock after signing in.
+  const isLocked = (key: ModelKey) => !isAuthed && key !== "flash";
 
   return (
     <div className="relative">
@@ -28,22 +35,38 @@ export function ModelSelector({
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute left-0 top-full mt-2 w-64 glass-strong rounded-xl p-1.5 z-50">
-            {Object.entries(MODELS).map(([key, m]) => (
-              <button
-                key={key}
-                onClick={() => {
-                  onChange(key as ModelKey);
-                  setOpen(false);
-                }}
-                className="w-full flex items-start gap-2 text-left px-3 py-2 rounded-lg hover:bg-white/[0.06] transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-ink">{m.label}</div>
-                  <div className="text-xs text-muted">{m.description}</div>
-                </div>
-                {key === value && <Check className="w-4 h-4 text-lamp shrink-0 mt-0.5" />}
-              </button>
-            ))}
+            {Object.entries(MODELS).map(([key, m]) => {
+              const locked = isLocked(key as ModelKey);
+              return (
+                <button
+                  key={key}
+                  onClick={() => {
+                    if (locked) {
+                      router.push("/signup");
+                      return;
+                    }
+                    onChange(key as ModelKey);
+                    setOpen(false);
+                  }}
+                  className={`w-full flex items-start gap-2 text-left px-3 py-2 rounded-lg transition-colors ${
+                    locked
+                      ? "opacity-60 hover:bg-white/[0.04]"
+                      : "hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-ink flex items-center gap-1.5">
+                      {m.label}
+                      {locked && <Lock className="w-3 h-3 text-muted" />}
+                    </div>
+                    <div className="text-xs text-muted">
+                      {locked ? "Sign in to unlock" : m.description}
+                    </div>
+                  </div>
+                  {key === value && <Check className="w-4 h-4 text-lamp shrink-0 mt-0.5" />}
+                </button>
+              );
+            })}
           </div>
         </>
       )}

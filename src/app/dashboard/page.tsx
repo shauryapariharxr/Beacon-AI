@@ -114,7 +114,16 @@ export default function DashboardPage() {
   }
 
   if (checking) {
-    return <div className="h-screen flex items-center justify-center text-muted">Loading…</div>;
+    return (
+      <div className="h-screen flex flex-col items-center justify-center gap-6">
+        <img src="/logo.svg" alt="Beacon" className="w-14 h-14 beacon-blink" />
+        <div className="flex items-center gap-1.5" aria-label="Loading">
+          <span className="w-2 h-2 rounded-full bg-lamp thinking-dot" style={{ animationDelay: "0ms" }} />
+          <span className="w-2 h-2 rounded-full bg-lamp thinking-dot" style={{ animationDelay: "200ms" }} />
+          <span className="w-2 h-2 rounded-full bg-lamp thinking-dot" style={{ animationDelay: "400ms" }} />
+        </div>
+      </div>
+    );
   }
 
   return (

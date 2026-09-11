@@ -4,7 +4,20 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUserId } from "@/lib/auth";
-import { isValidModel, MODELS } from "@/lib/models";
+import { isValidModel } from "@/lib/models";
+import {
+  hasProviders,
+  nextProviderAttempt,
+  markProviderRateLimited,
+  markProviderUnavailable,
+  providerCount,
+} from "@/lib/providers";
+
+// Rate limits recover on their own, so a short cooldown; but "this model
+// isn't allowed on your tier" (403) or "model doesn't exist" (404) won't
+// self-heal — treat those as failover signals too and bench the provider
+// for a while so the same broken mapping isn't retried on every request.
+const HARD_FAIL_STATUSES = new Set([403, 404]);
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -20,14 +33,24 @@ export async function POST(req: NextRequest) {
   if (!isValidModel(modelKey)) {
     return NextResponse.json({ error: "Invalid model" }, { status: 400 });
   }
-  if (!process.env.GROQ_API_KEY) {
+
+  // Guests (not signed in) are restricted to the Flash model. Checked on the
+  // server so bypassing the UI lock doesn't grant access to premium models.
+  const sessionUserId = await getSessionUserId();
+  if (!sessionUserId && modelKey !== "flash") {
+    return NextResponse.json(
+      { error: "Sign in to use models other than Flash." },
+      { status: 401 }
+    );
+  }
+  if (!hasProviders()) {
     return NextResponse.json(
       { error: "Server is missing GROQ_API_KEY. Add it to .env.local." },
       { status: 500 }
     );
   }
 
-  const userId = await getSessionUserId();
+  const userId = sessionUserId;
   let convoId = conversationId;
 
   // If logged in, persist the conversation + user message.
@@ -91,32 +114,71 @@ export async function POST(req: NextRequest) {
     history = [{ role: "user", content: message }];
   }
 
-  const groqModel = MODELS[modelKey].groqModel;
+  const systemPrompt =
+    "You are a concise AI tutor. Follow these rules:\n- Give direct, accurate answers. Be brief.\n- Use code blocks with language tags (```java, ```python, etc.) for code.\n- Use markdown: **bold** for emphasis, headers for sections, bullet lists for steps.\n- For code: explain briefly, then show the code. Don't explain every line.\n- Keep explanations under 200 words unless the user asks for detail.\n- Never repeat the question back. Start with the answer.";
 
-  let upstream: Response;
-  try {
-    upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: groqModel,
-        messages: [
-          {
-            role: "system",              content:
-              "You are a concise AI tutor. Follow these rules:\n- Give direct, accurate answers. Be brief.\n- Use code blocks with language tags (```java, ```python, etc.) for code.\n- Use markdown: **bold** for emphasis, headers for sections, bullet lists for steps.\n- For code: explain briefly, then show the code. Don't explain every line.\n- Keep explanations under 200 words unless the user asks for detail.\n- Never repeat the question back. Start with the answer.",
-          },
-          ...history,
-        ],
-        stream: true,
-      }),
-    });
-  } catch (err: any) {
-    console.error("Failed to reach Groq:", err);
+  // Try up to N providers (one attempt per configured provider): round-robin
+  // picks a healthy one; if it's rate-limited (429), it goes on a 60s cooldown
+  // and the next attempt immediately uses the alternate provider instead.
+  let upstream: Response | null = null;
+  let lastErrorText = "";
+  const attempts = Math.min(providerCount(), 3);
+
+  for (let attempt = 0; attempt < attempts && !upstream; attempt++) {
+    const target = nextProviderAttempt(modelKey);
+    try {
+      const res = await fetch(target.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${target.apiKey}`,
+        },
+        // Model ID is provider-specific — each provider maps the user's
+        // chosen mode (flash/smart/coder) to its own model.
+        body: JSON.stringify({
+          model: target.model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...history,
+          ],
+          stream: true,
+        }),
+      });
+
+      if (res.status === 429) {
+        // Rate-limited: cool this provider down and try the next one.
+        markProviderRateLimited(target);
+        lastErrorText = await res.text().catch(() => "rate limited");
+        console.warn(
+          `${target.providerName} (…${target.apiKey.slice(-4)}) rate-limited — rotating to next provider`
+        );
+        continue;
+      }
+
+      if (HARD_FAIL_STATUSES.has(res.status)) {
+        // Model unavailable on this provider (tier/model error): fail over
+        // like a 429, but bench the provider longer so we stop retrying a
+        // mapping that can't succeed until it's reconfigured.
+        markProviderUnavailable(target, 10 * 60_000);
+        lastErrorText = await res.text().catch(() => res.statusText);
+        console.warn(
+          `${target.providerName} model '${target.model}' unavailable (${res.status}) — rotating to next provider`
+        );
+        continue;
+      }
+
+      upstream = res;
+    } catch (err: any) {
+      console.error(`Failed to reach ${target.providerName}:`, err);
+      lastErrorText = err?.message || String(err);
+    }
+  }
+
+  if (!upstream) {
     return NextResponse.json(
-      { error: "Couldn't reach Groq's API. Check your network/firewall and try again." },
+      {
+        error: `All AI providers failed or are rate-limited. ${lastErrorText}`.trim(),
+      },
       { status: 502 }
     );
   }

@@ -119,3 +119,30 @@ body {
 .prose :where(tbody tr):not(:where([class~="not-prose"], [class~="not-prose"], [class~="not-prose"] *)) {
   border-bottom-color: rgba(255, 255, 255, 0.06);
 }
+
+/* Blinking beacon logo for loading screens — plain opacity flash, no glow */
+@keyframes beacon-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+
+.beacon-blink {
+  animation: beacon-blink 1.4s ease-in-out infinite;
+}
+
+/* Thinking dots animation — bounces each dot up */
+@keyframes thinking-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+
+.thinking-dot {
+  animation: thinking-bounce 1.2s ease-in-out infinite;
+}
+

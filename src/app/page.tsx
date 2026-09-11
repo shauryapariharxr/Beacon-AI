@@ -3,7 +3,7 @@
 import { useState, Fragment, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ChevronDown, Check, Minus } from "lucide-react";
+import { ChevronDown, Check, Minus, Maximize2, Minimize2 } from "lucide-react";
 import { ChatWindow } from "@/components/ChatWindow";
 import { MODELS } from "@/lib/models";
 
@@ -126,6 +126,22 @@ function OnlineBadge() {
 }
 
 export default function HomePage() {
+  const [demoMaximized, setDemoMaximized] = useState(false);
+
+  // While the demo is fullscreen: lock page scroll and let Escape close it.
+  useEffect(() => {
+    if (!demoMaximized) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDemoMaximized(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [demoMaximized]);
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Navbar */}
@@ -186,12 +202,26 @@ export default function HomePage() {
 
         {/* Live demo — this is the real app, not a scripted mockup */}
         <section id="demo" className="max-w-3xl mx-auto px-4 pb-20 scroll-mt-20">
-          <div className="glass-strong rounded-2xl overflow-hidden">
-            <div className="h-11 px-4 flex items-center gap-2 border-b border-white/[0.06]">
+          <div
+            className={`glass-strong overflow-hidden flex flex-col ${
+              demoMaximized
+                ? "fixed inset-0 z-[100] rounded-none"
+                : "rounded-2xl"
+            }`}
+          >
+            <div className="h-11 shrink-0 px-4 flex items-center gap-2 border-b border-white/[0.06]">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
               <span className="text-xs text-muted">Live and fully working — not a recording</span>
+              <button
+                onClick={() => setDemoMaximized((v) => !v)}
+                aria-label={demoMaximized ? "Minimize demo" : "Maximize demo"}
+                title={demoMaximized ? "Minimize (Esc)" : "Maximize"}
+                className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-muted hover:text-ink hover:bg-white/[0.08] transition-colors"
+              >
+                {demoMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
             </div>
-            <div className="h-[560px]">
+            <div className={`min-h-0 flex-1 ${demoMaximized ? "" : "h-[560px]"}`}>
               <ChatWindow isAuthed={false} />
             </div>
           </div>
