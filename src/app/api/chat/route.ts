@@ -31,59 +31,96 @@ export async function POST(req: NextRequest) {
   let convoId = conversationId;
 
   // If logged in, persist the conversation + user message.
+  // Wrapped explicitly: a database failure here (e.g. a paused Supabase
+  // project, an expired connection string) used to throw uncaught and
+  // either crash the route or leave the client hanging with no feedback.
+  // Now it surfaces as a clear, readable error instead.
   if (userId) {
-    if (!convoId) {
-      convoId = nanoid();
-      await db.insert(conversations).values({
-        id: convoId,
-        userId,
-        title: message.slice(0, 60),
-        model: modelKey,
+    try {
+      if (!convoId) {
+        convoId = nanoid();
+        await db.insert(conversations).values({
+          id: convoId,
+          userId,
+          title: message.slice(0, 60),
+          model: modelKey,
+          createdAt: Date.now(),
+        });
+      }
+      await db.insert(messages).values({
+        id: nanoid(),
+        conversationId: convoId,
+        role: "user",
+        content: message,
         createdAt: Date.now(),
       });
+    } catch (err: any) {
+      console.error("Chat DB write failed:", err);
+      return NextResponse.json(
+        {
+          error:
+            "Couldn't save your message to the database. This usually means your database connection is down or paused (check your Supabase project isn't sleeping, and that DATABASE_URL is still correct). Details: " +
+            (err?.message || String(err)),
+        },
+        { status: 500 }
+      );
     }
-    await db.insert(messages).values({
-      id: nanoid(),
-      conversationId: convoId,
-      role: "user",
-      content: message,
-      createdAt: Date.now(),
-    });
   }
 
   // Pull prior turns for context if we have a saved conversation.
   let history: { role: string; content: string }[] = [];
   if (userId && convoId) {
-    const rows = await db
-      .select()
-      .from(messages)
-      .where(eq(messages.conversationId, convoId));
-    history = rows.map((r) => ({ role: r.role, content: r.content }));
+    try {
+      const rows = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, convoId));
+      history = rows.map((r) => ({ role: r.role, content: r.content }));
+    } catch (err: any) {
+      console.error("Chat DB read failed:", err);
+      return NextResponse.json(
+        {
+          error:
+            "Couldn't load conversation history from the database. Details: " +
+            (err?.message || String(err)),
+        },
+        { status: 500 }
+      );
+    }
   } else {
     history = [{ role: "user", content: message }];
   }
 
   const groqModel = MODELS[modelKey].groqModel;
 
-  const upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: groqModel,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a friendly, patient AI tutor for students. Explain clearly, use examples, and check understanding.",
-        },
-        ...history,
-      ],
-      stream: true,
-    }),
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: groqModel,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a friendly, patient AI tutor for students. Explain clearly, use examples, and check understanding.",
+          },
+          ...history,
+        ],
+        stream: true,
+      }),
+    });
+  } catch (err: any) {
+    console.error("Failed to reach Groq:", err);
+    return NextResponse.json(
+      { error: "Couldn't reach Groq's API. Check your network/firewall and try again." },
+      { status: 502 }
+    );
+  }
 
   if (!upstream.ok || !upstream.body) {
     const text = await upstream.text().catch(() => "");
@@ -101,41 +138,57 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const reader = upstream.body!.getReader();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data:")) continue;
-          const data = trimmed.slice(5).trim();
-          if (data === "[DONE]") continue;
-          try {
-            const json = JSON.parse(data);
-            const delta = json.choices?.[0]?.delta?.content;
-            if (delta) {
-              fullText += delta;
-              controller.enqueue(encoder.encode(delta));
+      try {
+        const reader = upstream.body!.getReader();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const data = trimmed.slice(5).trim();
+            if (data === "[DONE]") continue;
+            try {
+              const json = JSON.parse(data);
+              const delta = json.choices?.[0]?.delta?.content;
+              if (delta) {
+                fullText += delta;
+                controller.enqueue(encoder.encode(delta));
+              }
+            } catch {
+              // ignore malformed keep-alive lines
             }
-          } catch {
-            // ignore malformed keep-alive lines
           }
         }
-      }
-      controller.close();
+        controller.close();
 
-      if (userId && convoId && fullText) {
-        await db.insert(messages).values({
-          id: nanoid(),
-          conversationId: convoId,
-          role: "assistant",
-          content: fullText,
-          createdAt: Date.now(),
-        });
+        if (userId && convoId && fullText) {
+          try {
+            await db.insert(messages).values({
+              id: nanoid(),
+              conversationId: convoId,
+              role: "assistant",
+              content: fullText,
+              createdAt: Date.now(),
+            });
+          } catch (err) {
+            // The reply already streamed to the user successfully; a failure
+            // to save it afterward shouldn't be shown as a chat error, but
+            // it IS worth logging so you notice conversations aren't saving.
+            console.error("Failed to save assistant reply to DB:", err);
+          }
+        }
+      } catch (err: any) {
+        // Anything that throws inside this block (a network hiccup mid-stream,
+        // an unexpected error) now explicitly errors the stream instead of
+        // hanging forever. The client's reader.read() will reject, which
+        // surfaces as a visible error message in the chat UI.
+        console.error("Streaming failed:", err);
+        controller.error(err);
       }
     },
   });
