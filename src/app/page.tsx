@@ -101,7 +101,16 @@ function FaqItem({ q, a }: { q: string; a: string }) {
 }
 
 function OnlineBadge() {
-  const [count, setCount] = useState(() => Math.floor(Math.random() * 40) + 12);
+  // Start with a deterministic placeholder so server and client HTML match
+  // (seeding directly with Math.random() causes a hydration mismatch), then
+  // switch to the live random walk once mounted.
+  const [count, setCount] = useState(24);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    setCount(Math.floor(Math.random() * 40) + 12);
+  }, []);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -119,7 +128,12 @@ function OnlineBadge() {
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
         <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-400" />
       </span>
-      <span className="text-sm text-ink font-medium">{count}</span>
+      <span
+        className="text-sm text-ink font-medium"
+        suppressHydrationWarning
+      >
+        {mounted ? count : "24"}
+      </span>
       <span className="text-sm text-muted">online</span>
     </div>
   );
@@ -185,12 +199,12 @@ export default function HomePage() {
             Sign up later if you want your conversations saved.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <a
-              href="#demo"
+            <Link
+              href="/chat"
               className="inline-flex items-center justify-center h-11 px-6 rounded-xl bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] font-semibold hover:brightness-105 transition-all"
             >
-              Try it below
-            </a>
+              Continue without account
+            </Link>
             <Link
               href="/signup"
               className="inline-flex items-center justify-center h-11 px-6 rounded-xl glass text-ink hover:bg-white/[0.07] transition-colors"
@@ -248,8 +262,11 @@ export default function HomePage() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {FEATURES.map((f) => (
-              <div key={f.title} className="glass rounded-2xl p-6">
-                <h3 className="font-medium text-ink mb-2">{f.title}</h3>
+              <div
+                key={f.title}
+                className="glass rounded-2xl p-6 transition-all duration-200 hover:-translate-y-1 hover:bg-white/[0.075] hover:border-white/[0.18] hover:shadow-[0_14px_36px_rgba(0,0,0,0.45)]"
+              >
+                <h3 className="font-medium text-ink mb-2 transition-colors hover:text-lamp">{f.title}</h3>
                 <p className="text-sm text-muted leading-relaxed">{f.body}</p>
               </div>
             ))}
@@ -263,7 +280,10 @@ export default function HomePage() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {Object.entries(MODELS).map(([key, m]) => (
-              <div key={key} className="glass rounded-2xl p-6 flex flex-col">
+              <div
+                key={key}
+                className="glass rounded-2xl p-6 flex flex-col transition-all duration-200 hover:-translate-y-1 hover:bg-white/[0.075] hover:border-white/[0.18] hover:shadow-[0_14px_36px_rgba(0,0,0,0.45)]"
+              >
                 <span className="font-serif font-bold text-xl text-lamp mb-2">{m.label}</span>
                 <p className="text-sm text-muted leading-relaxed flex-1">{m.description}</p>
               </div>

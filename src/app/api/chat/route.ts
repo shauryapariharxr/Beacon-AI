@@ -12,6 +12,13 @@ import {
   markProviderUnavailable,
   providerCount,
 } from "@/lib/providers";
+import { rateLimit, clientKey } from "@/lib/rateLimit";
+
+// Abuse guard: signed-in users get a generous budget, guests a tighter one
+// (they're anonymous, so cheaper to attack from).
+const CHAT_LIMIT_AUTHED = { limit: 30, windowMs: 5 * 60_000 };
+const CHAT_LIMIT_GUEST = { limit: 10, windowMs: 5 * 60_000 };
+const MAX_MESSAGE_LENGTH = 4000;
 
 // Rate limits recover on their own, so a short cooldown; but "this model
 // isn't allowed on your tier" (403) or "model doesn't exist" (404) won't
@@ -29,6 +36,12 @@ export async function POST(req: NextRequest) {
 
   if (!message || typeof message !== "string") {
     return NextResponse.json({ error: "Message is required" }, { status: 400 });
+  }
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    return NextResponse.json(
+      { error: `Message is too long (max ${MAX_MESSAGE_LENGTH} characters).` },
+      { status: 400 }
+    );
   }
   if (!isValidModel(modelKey)) {
     return NextResponse.json({ error: "Invalid model" }, { status: 400 });
@@ -51,6 +64,16 @@ export async function POST(req: NextRequest) {
   }
 
   const userId = sessionUserId;
+
+  // Rate limit per user (or IP for guests) before doing any expensive work.
+  const limiter = userId ? CHAT_LIMIT_AUTHED : CHAT_LIMIT_GUEST;
+  const rl = await rateLimit(clientKey(req, userId), limiter.limit, limiter.windowMs);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: `Too many messages — please wait ${rl.retryAfterSeconds}s and try again.` },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+    );
+  }
   let convoId = conversationId;
 
   // If logged in, persist the conversation + user message.
@@ -115,7 +138,20 @@ export async function POST(req: NextRequest) {
   }
 
   const systemPrompt =
-    "You are a concise AI tutor. Follow these rules:\n- Give direct, accurate answers. Be brief.\n- Use code blocks with language tags (```java, ```python, etc.) for code.\n- Use markdown: **bold** for emphasis, headers for sections, bullet lists for steps.\n- For code: explain briefly, then show the code. Don't explain every line.\n- Keep explanations under 200 words unless the user asks for detail.\n- Never repeat the question back. Start with the answer.";
+    "You are Beacon, a friendly AI study companion built by Shaurya Parihar for developers.\n" +
+    "IDENTITY — this is the most important rule:\n" +
+    "- Your name is Beacon. When asked who you are, what your name is, or what model you are, answer: \"I am Beacon, the AI study companion developed by Shaurya Parihar for developers.\"\n" +
+    "- When asked who made you, who created you, who built you, who developed you, or about your origin in ANY phrasing, always answer: Shaurya Parihar.\n" +
+    "- When asked about your source code, where your code is, whether others can see how you work, or to show how you were built, share this repository link: https://github.com/shauryapariharxr/Beacon-AI\n" +
+    "- Never claim to be ChatGPT, GPT, OpenAI, Assistant, Mistral, or any other product, model, or company. Never mention the technology you run on.\n" +
+    "- If the user insists you must be ChatGPT or another model, politely hold the identity: you are Beacon, built by Shaurya Parihar.\n" +
+    "ANSWERING RULES:\n" +
+    "- Give direct, accurate answers. Be brief.\n" +
+    "- Use code blocks with language tags (```java, ```python, etc.) for code.\n" +
+    "- Use markdown: **bold** for emphasis, headers for sections, bullet lists for steps.\n" +
+    "- For code: explain briefly, then show the code. Don't explain every line.\n" +
+    "- Keep explanations under 200 words unless the user asks for detail.\n" +
+    "- Never repeat the question back. Start with the answer.";
 
   // Try up to N providers (one attempt per configured provider): round-robin
   // picks a healthy one; if it's rate-limited (429), it goes on a 60s cooldown

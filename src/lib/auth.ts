@@ -3,9 +3,24 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 
 const COOKIE_NAME = "session";
-const secret = new TextEncoder().encode(
-  process.env.JWT_SECRET || "dev-only-insecure-secret-change-me"
-);
+
+function getSecret(): Uint8Array {
+  const value = process.env.JWT_SECRET;
+  if (!value || value.length < 32) {
+    // In production a weak/missing JWT_SECRET lets anyone forge session
+    // cookies — refuse to issue/verify sessions rather than silently
+    // running with the dev fallback.
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "JWT_SECRET is missing or too short (32+ chars required in production). Set it in your hosting provider's environment variables."
+      );
+    }
+    return new TextEncoder().encode("dev-only-insecure-secret-change-me");
+  }
+  return new TextEncoder().encode(value);
+}
+
+const secret = getSecret();
 
 export async function hashPassword(password: string) {
   return bcrypt.hash(password, 10);

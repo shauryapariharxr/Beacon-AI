@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  verified_at BIGINT,
   created_at BIGINT NOT NULL
 );
 

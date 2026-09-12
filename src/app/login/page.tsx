@@ -1,34 +1,57 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Mail, Lock, Eye, EyeOff, MessageCircle } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, MessageCircle, MailCheck } from "lucide-react";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resent, setResent] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  async function submit(e: React.FormEvent) {
+  // Banners from the email-verification redirect: /login?verified=1|expired|invalid
+  useEffect(() => {
+    const verified = searchParams.get("verified");
+    if (verified === "1") setNotice("Email verified — you can sign in now.");
+    else if (verified === "expired")
+      setNotice("That verification link expired. Sign in to get a fresh one.");
+    else if (verified === "invalid") setNotice("That verification link is invalid.");
+  }, [searchParams]);
+
+  async function submit(e: React.FormEvent, resendVerification = false) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, resendVerification }),
     });
     setLoading(false);
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Login failed");
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok && data.verificationResent) {
+      setResent(true);
+      setNeedsVerification(false);
       return;
     }
-    router.push("/dashboard");
+    if (res.ok) {
+      router.push("/dashboard");
+      return;
+    }
+    if (data.needsVerification) {
+      setNeedsVerification(true);
+      setNotice(null);
+    }
+    setError(data.error || "Login failed");
   }
 
   return (
@@ -38,8 +61,33 @@ export default function LoginPage() {
         <p className="text-muted mt-2">Continue where you left off.</p>
       </div>
 
-      <form onSubmit={submit} className="w-full max-w-sm glass-strong rounded-2xl p-6 space-y-4">
+      <form
+        onSubmit={(e) => submit(e)}
+        className="w-full max-w-sm glass-strong rounded-2xl p-6 space-y-4"
+      >
+        {notice && (
+          <div className="text-sm text-lamp border border-lamp/30 bg-lamp/10 rounded-lg px-3 py-2">
+            {notice}
+          </div>
+        )}
+        {resent && (
+          <div className="flex items-start gap-2 text-sm text-green-300 border border-green-800/40 bg-green-950/30 rounded-lg px-3 py-2">
+            <MailCheck className="w-4 h-4 shrink-0 mt-0.5" />
+            Verification email sent — check your inbox, then sign in.
+          </div>
+        )}
         {error && <div className="text-sm text-red-400">{error}</div>}
+
+        {needsVerification && (
+          <button
+            type="button"
+            onClick={(e) => submit(e, true)}
+            disabled={loading}
+            className="w-full text-sm border border-lamp/40 text-lamp rounded-xl py-2.5 hover:bg-lamp/10 transition-colors disabled:opacity-40"
+          >
+            {loading ? "Sending..." : "Resend verification email"}
+          </button>
+        )}
 
         <div className="space-y-1.5">
           <label className="text-sm text-muted">Email</label>
@@ -102,7 +150,7 @@ export default function LoginPage() {
         </div>
 
         <Link
-          href="/"
+          href="/chat"
           className="w-full flex items-center justify-center gap-2 border border-white/10 rounded-xl py-2.5 text-sm text-muted hover:text-ink hover:bg-white/[0.04] transition-colors"
         >
           <MessageCircle className="w-4 h-4" />
@@ -117,5 +165,13 @@ export default function LoginPage() {
         </Link>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

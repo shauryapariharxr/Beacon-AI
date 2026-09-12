@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.4",
     "bcryptjs": "^2.4.3",
     "drizzle-orm": "^0.33.0",
     "jose": "^5.9.3",
@@ -23,7 +25,8 @@
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "resend": "^6.28.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
