@@ -188,7 +188,7 @@ export function ChatWindow({
               {userMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
-                  <div className="absolute right-0 top-full mt-2 w-44 glass-strong rounded-xl p-1.5 z-50">
+                  <div className="absolute right-0 top-full mt-2 w-44 glass-strong rounded-xl p-1.5 z-50 animate-pop-in">
                     <button
                       onClick={() => {
                         setUserMenuOpen(false);
@@ -237,7 +237,7 @@ export function ChatWindow({
           const isThinking = sending && isLastAssistant && !m.content;
           if (isThinking) {
             return (
-              <div key={i} className="flex items-center gap-3 max-w-[85%]">
+              <div key={i} className="flex items-center gap-3 max-w-[85%] animate-msg-in">
                 <div className="shrink-0 w-8 h-8 flex items-center justify-center">
                   <img src="/logo.svg" alt="Beacon" className="w-7 h-7" />
                 </div>
@@ -254,12 +254,12 @@ export function ChatWindow({
           return <MessageBubble key={i} role={m.role} content={m.content} />;
         })}
         {chatError && (
-          <div className="text-sm text-amber-300 border border-amber-800/40 bg-amber-950/30 rounded-lg px-3 py-2 max-w-[85%]">
+          <div className="text-sm text-amber-300 border border-amber-800/40 bg-amber-950/30 rounded-lg px-3 py-2 max-w-[85%] animate-toast-in">
             {chatError}
           </div>
         )}
         {error && (
-          <div className="text-sm text-red-300 border border-red-900/60 bg-red-950/40 rounded-lg px-3 py-2 max-w-[75%]">
+          <div className="text-sm text-red-300 border border-red-900/60 bg-red-950/40 rounded-lg px-3 py-2 max-w-[75%] animate-toast-in">
             {error}
           </div>
         )}

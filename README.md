@@ -1,31 +1,40 @@
 # Beacon
 
-A free AI study-buddy app you own end to end — chat instantly as a guest, or
-sign up to save your conversation history. Built with Next.js, TypeScript,
-Tailwind, and multi-provider AI inference (Groq + Mistral) for fast open-model
-answers that survive rate limits.
+A free, self-hostable AI study companion. Chat instantly as a guest — no
+account required — or sign up to save your conversation history. Built with
+Next.js, TypeScript, Tailwind CSS, and multi-provider AI inference (Groq +
+Mistral) for fast, open-model answers that survive rate limits.
 
-## What it does
+## Features
 
-- Guest chat, no login required (Flash model)
-- Sign up / log in to unlock all models and save conversations in a sidebar
-- 3 model modes: **Flash** (quick), **Smart** (reasoning), **Coder** (code)
-- Multi-provider rotation: requests alternate across Groq and Mistral; a
-  rate-limited or unavailable provider is benched and traffic fails over
-- Language toggle: English, Roman Urdu, Urdu script
-- Streaming responses (tokens appear as they're generated)
-- Email verification via Resend (optional — enable by setting `RESEND_API_KEY`)
-- Abuse protection: per-user/IP rate limits on chat and auth endpoints,
-  backed by Upstash Redis in production (shared across instances)
+- **Guest chat** — start chatting immediately, no login needed (Flash model)
+- **Accounts & history** — sign up to unlock all models and keep a searchable conversation sidebar
+- **Three model modes** — Flash (quick), Smart (reasoning), Coder (code)
+- **Multi-provider failover** — requests rotate across Groq and Mistral; a rate-limited or unavailable provider is temporarily benched while traffic fails over
+- **Streaming responses** — tokens render as they are generated
+- **Language toggle** — English, Roman Urdu, Urdu script
+- **Contact form** — messages delivered to the owner's inbox via Resend
+- **Abuse protection** — per-user/IP rate limits on chat and auth endpoints, backed by Upstash Redis in production with an in-memory fallback
 
 ## Tech stack
 
-- Next.js 14 (App Router) + TypeScript + Tailwind
-- Postgres (Neon) + Drizzle ORM
-- JWT session cookies (`jose`) + `bcryptjs` for password hashing
-- Groq + Mistral OpenAI-compatible chat completions APIs, streamed
+| Layer      | Technology                                        |
+| ---------- | ------------------------------------------------- |
+| Framework  | Next.js 14 (App Router), TypeScript, Tailwind CSS |
+| Database   | PostgreSQL (Neon) via Drizzle ORM                 |
+| Auth       | JWT session cookies (`jose`), `bcryptjs` hashing  |
+| AI         | Groq + Mistral OpenAI-compatible APIs, streamed   |
+| Rate limit | Upstash Redis (optional), in-memory fallback      |
 
-## Getting started (local development)
+## Getting started
+
+### Prerequisites
+
+- Node.js 18+
+- A free [Groq](https://console.groq.com) API key (Mistral optional)
+- A free [Neon](https://neon.tech) Postgres database
+
+### Setup
 
 1. **Install dependencies**
 
@@ -33,89 +42,117 @@ answers that survive rate limits.
    npm install
    ```
 
-2. **Get free API keys**
-   - Groq: https://console.groq.com
-   - Mistral (optional but recommended): https://console.mistral.ai
-
-3. **Get a free Postgres database** at https://neon.tech — copy the
-   connection string (starts with `postgresql://`).
-
-4. **Create your env file**
+2. **Configure environment**
 
    ```bash
    cp .env.local.example .env.local
    ```
 
-   Fill in `GROQ_API_KEY`, `MISTRAL_API_KEY`, `JWT_SECRET` (32+ random chars),
-   and `DATABASE_URL`.
+   Fill in `GROQ_API_KEY`, `DATABASE_URL`, and `JWT_SECRET` (32+ random
+   characters). `MISTRAL_API_KEY` is optional but recommended.
 
-5. **Create the database tables** — open the SQL editor in your Neon
-   dashboard and run the contents of `drizzle/0000_init.sql` (once).
-   Alternatively run `npm run db:push` locally.
+3. **Create the database tables**
 
-6. **Run it**
+   Run the contents of `drizzle/0000_init.sql` once in your Neon SQL editor,
+   or generate the schema locally:
+
+   ```bash
+   npm run db:push
+   ```
+
+4. **Start the dev server**
 
    ```bash
    npm run dev
    ```
 
-   Open http://localhost:3000.
+   Open [http://localhost:3000](http://localhost:3000).
 
-## Deploying to Vercel
+## Deployment
 
-1. Push this project to a GitHub repo.
-2. Go to https://vercel.com/new and import the repo.
-3. Add the environment variables from `.env.local.example` in the project's
-   Environment Variables settings (`DATABASE_URL`, `JWT_SECRET`,
-   `GROQ_API_KEY`, `MISTRAL_API_KEY`, and for production also
-   `RESEND_API_KEY` + `EMAIL_FROM` + `NEXT_PUBLIC_APP_URL` and the two
-   `UPSTASH_REDIS_REST_*` variables).
-4. Run `drizzle/0000_init.sql` against your production database (once) if you
-   haven't already.
-5. Deploy. Vercel auto-detects Next.js — no build configuration needed.
+### Vercel (recommended)
+
+1. Push the repository to GitHub.
+2. Import it at [vercel.com/new](https://vercel.com/new) — Next.js is auto-detected.
+3. Add the environment variables from `.env.local.example`:
+   - Required: `DATABASE_URL`, `JWT_SECRET`, `GROQ_API_KEY`
+   - Optional: `MISTRAL_API_KEY`, `NEXT_PUBLIC_APP_URL`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
+   - Contact form only: `RESEND_API_KEY`, `CONTACT_EMAIL`, `EMAIL_FROM`
+4. Run `drizzle/0000_init.sql` against the production database (once).
+
+### Other platforms
+
+Any Node.js host works. Build with `npm run build`, start with `npm start`,
+and provide the same environment variables. A serverless-friendly Postgres
+provider (e.g. Neon) is recommended for edge/idle behavior.
 
 ## Project structure
 
 ```
 src/
   app/
-    page.tsx                 - landing page with live demo
-    chat/                    - fullscreen guest chat
-    login/, signup/          - auth screens
-    dashboard/page.tsx       - logged-in chat with saved conversation sidebar
+    page.tsx                 Landing page with live demo
+    chat/                    Fullscreen guest chat
+    dashboard/               Logged-in chat with saved conversations
+    login/, signup/          Auth screens
+    contact/                 Contact form page
     api/
-      chat/route.ts          - streams responses, saves history if logged in
-      auth/*                 - signup, login, logout, current-user routes
-      conversations/*        - list + fetch saved conversations
-  components/                - ChatWindow, Sidebar, ModelSelector, LanguageToggle, MessageBubble
+      chat/route.ts          Streams responses; persists history when logged in
+      auth/                  signup, login, logout, me
+      conversations/         List and fetch saved conversations
+      contact/route.ts       Contact form delivery via Resend
+  components/                ChatWindow, Sidebar, ModelSelector, LanguageToggle, MessageBubble
   lib/
-    db.ts, schema.ts         - Postgres (Neon) connection + Drizzle schema
-    auth.ts                  - password hashing + JWT session cookies
-    providers.ts             - multi-provider (Groq/Mistral) rotation + failover
-    rateLimit.ts             - in-memory sliding-window rate limiter
-    models.ts                - friendly model modes (Flash/Smart/Coder)
-    i18n.ts                  - UI translation strings
+    db.ts, schema.ts         Postgres connection + Drizzle schema
+    auth.ts                  Password hashing + JWT session cookies
+    providers.ts             Multi-provider rotation and failover
+    rateLimit.ts             Sliding-window rate limiter (Redis or in-memory)
+    models.ts                Model modes (Flash / Smart / Coder)
+    i18n.ts                  UI translation strings
 drizzle/
-  0000_init.sql              - run once against your database to create tables
+  0000_init.sql              Run once to create all tables
 ```
+
+## Available scripts
+
+| Command            | Description                        |
+| ------------------ | ---------------------------------- |
+| `npm run dev`      | Start the development server       |
+| `npm run build`    | Create a production build          |
+| `npm start`        | Run the production build           |
+| `npm run lint`     | Run ESLint                         |
+| `npm run db:push`  | Push the Drizzle schema to Postgres |
+| `npm run db:studio`| Open Drizzle Studio                |
+
+## Environment variables
+
+| Variable                  | Required | Description                                                    |
+| ------------------------- | -------- | -------------------------------------------------------------- |
+| `DATABASE_URL`            | Yes      | Postgres connection string (Neon pooled)                       |
+| `JWT_SECRET`              | Yes      | 32+ random chars (`openssl rand -base64 48`)                   |
+| `GROQ_API_KEY`            | Yes*     | Groq API key. *One AI provider is required*                    |
+| `MISTRAL_API_KEY`         | No       | Adds failover capacity across providers                        |
+| `UPSTASH_REDIS_REST_URL`  | No       | Shared rate limiting across instances                          |
+| `UPSTASH_REDIS_REST_TOKEN`| No       | Upstash REST token                                             |
+| `RESEND_API_KEY`          | No       | Enables the contact form                                       |
+| `CONTACT_EMAIL`           | No       | Recipient for contact messages                                 |
+| `EMAIL_FROM`              | No       | From address for contact emails                                |
+| `NEXT_PUBLIC_APP_URL`     | No       | Public URL, used for canonical links                           |
 
 ## Production notes
 
-- **JWT_SECRET must be 32+ random characters** in production — the app
-  refuses to issue sessions without it (`openssl rand -base64 48`).
-- **Rate limits use Upstash Redis** when `UPSTASH_REDIS_REST_URL` and
-  `UPSTASH_REDIS_REST_TOKEN` are set (shared across all instances), with an
-  automatic in-memory fallback if Redis errors.
-- **Email verification is active** when `RESEND_API_KEY` is set: signups get
-  a 24-hour verification link (tokens are single-use and stored hashed in
-  Redis, or in-memory without Redis), and unverified accounts can't log in
-  but can resend the link from the login page. Leave it unset in dev to
-  skip verification entirely.
-- **Model IDs change over time** — check providers in `src/lib/providers.ts`
-  against https://console.groq.com/docs/models and Mistral's model list if a
-  provider starts erroring with tier/not-found errors (the pool will fail
-  over automatically in the meantime).
+- **Session security** — `JWT_SECRET` must be 32+ random characters in
+  production; the app refuses to issue sessions without it.
+- **Rate limiting** — with Upstash configured, limits are shared across all
+  serverless instances. On Redis errors the limiter degrades gracefully to
+  in-memory windows per instance.
+- **Email verification** — intentionally omitted: signup creates the account
+  and signs the user in immediately. There is no password-reset flow.
+- **Model availability** — model IDs change over time. If a provider starts
+  returning tier or not-found errors, check the pools in `src/lib/providers.ts`
+  against the [Groq model list](https://console.groq.com/docs/models) and
+  Mistral's model list. The failover pool keeps serving traffic meanwhile.
 
 ## License
 
-MIT — do whatever you want with it.
+[MIT](LICENSE)

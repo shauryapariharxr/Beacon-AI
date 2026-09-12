@@ -19,6 +19,8 @@ import { rateLimit, clientKey } from "@/lib/rateLimit";
 const CHAT_LIMIT_AUTHED = { limit: 30, windowMs: 5 * 60_000 };
 const CHAT_LIMIT_GUEST = { limit: 10, windowMs: 5 * 60_000 };
 const MAX_MESSAGE_LENGTH = 4000;
+// Context window guard: never feed the model more than the last N turns.
+const MAX_HISTORY_TURNS = 40;
 
 // Rate limits recover on their own, so a short cooldown; but "this model
 // isn't allowed on your tier" (403) or "model doesn't exist" (404) won't
@@ -27,7 +29,14 @@ const MAX_MESSAGE_LENGTH = 4000;
 const HARD_FAIL_STATUSES = new Set([403, 404]);
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  // A malformed body (bad content-type, truncated request) used to throw
+  // uncaught and surface as an opaque 500 — reject it cleanly instead.
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
+  }
   const { message, modelKey, conversationId } = body as {
     message: string;
     modelKey: string;
@@ -121,7 +130,9 @@ export async function POST(req: NextRequest) {
         .select()
         .from(messages)
         .where(eq(messages.conversationId, convoId));
-      history = rows.map((r) => ({ role: r.role, content: r.content }));
+      history = rows
+        .slice(-MAX_HISTORY_TURNS)
+        .map((r) => ({ role: r.role, content: r.content }));
     } catch (err: any) {
       console.error("Chat DB read failed:", err);
       return NextResponse.json(

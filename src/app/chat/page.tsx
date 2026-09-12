@@ -25,6 +25,12 @@ export default function GuestChatPage() {
           Guest mode — sign up to save your chats
         </span>
         <Link
+          href="/contact"
+          className="text-xs text-muted hover:text-ink transition-colors"
+        >
+          Contact
+        </Link>
+        <Link
           href="/signup"
           className="text-xs bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] font-semibold px-3 py-1.5 rounded-full hover:brightness-105 transition-all"
         >

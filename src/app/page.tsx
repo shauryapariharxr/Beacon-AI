@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Fragment, useEffect } from "react";
+import { useState, Fragment, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { ChevronDown, Check, Minus, Maximize2, Minimize2 } from "lucide-react";
@@ -142,11 +142,48 @@ function OnlineBadge() {
 export default function HomePage() {
   const [demoMaximized, setDemoMaximized] = useState(false);
 
+  // FLIP animation for maximize/minimize: capture the demo box's on-screen
+  // rectangle before the layout change, then after React re-renders it as
+  // fullscreen (or back), play an inverted transform so it visually grows
+  // from its old spot — like a real window manager.
+  const demoRef = useRef<HTMLDivElement>(null);
+  const prevRectRef = useRef<DOMRect | null>(null);
+
+  const toggleDemoMaximized = useCallback(() => {
+    const el = demoRef.current;
+    if (el) prevRectRef.current = el.getBoundingClientRect();
+    setDemoMaximized((v) => !v);
+  }, []);
+
+  useEffect(() => {
+    const el = demoRef.current;
+    const first = prevRectRef.current;
+    if (!el || !first) return;
+    prevRectRef.current = null;
+
+    const last = el.getBoundingClientRect();
+    const dx = first.left - last.left;
+    const dy = first.top - last.top;
+    const sx = first.width / last.width;
+    const sy = first.height / last.height;
+    // Skip if the layout barely moved (e.g. a stray re-render).
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2 && Math.abs(sx - 1) < 0.02 && Math.abs(sy - 1) < 0.02)
+      return;
+
+    el.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` },
+        { transform: "translate(0, 0) scale(1, 1)" },
+      ],
+      { duration: 320, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
+    );
+  }, [demoMaximized]);
+
   // While the demo is fullscreen: lock page scroll and let Escape close it.
   useEffect(() => {
     if (!demoMaximized) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDemoMaximized(false);
+      if (e.key === "Escape") toggleDemoMaximized();
     };
     document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
@@ -154,7 +191,7 @@ export default function HomePage() {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-  }, [demoMaximized]);
+  }, [demoMaximized, toggleDemoMaximized]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -162,12 +199,13 @@ export default function HomePage() {
       <header className="sticky top-0 z-50 flex justify-center pt-3 px-3">
         <div className="glass-nav w-full max-w-5xl rounded-[50px] pl-6 pr-4 py-2.5 flex items-center justify-between">
           <Link href="/">
-            <Image src="/logo.svg" alt="Beacon" width={30} height={30} className="ml-1" />
+            <Image src="/logo.svg" alt="Beacon" width={30} height={30} className="ml-1" priority />
           </Link>
           <nav className="hidden md:flex items-center gap-6 text-sm text-muted">
             <a href="#demo" className="hover:text-ink transition-colors">Try it</a>
             <a href="#models" className="hover:text-ink transition-colors">Models</a>
             <a href="#how-it-works" className="hover:text-ink transition-colors">How it works</a>
+            <Link href="/contact" className="hover:text-ink transition-colors">Contact</Link>
           </nav>
           <div className="flex items-center gap-4">
             <Link href="/login" className="text-sm text-muted hover:text-ink transition-colors">
@@ -186,19 +224,28 @@ export default function HomePage() {
       <main className="flex-1">
         {/* Hero */}
         <section className="max-w-3xl mx-auto px-4 pt-16 md:pt-24 pb-12 text-center">
-          <div className="mb-6">
+          <div className="mb-6 animate-fade-up" style={{ animationDelay: "0ms" }}>
             <OnlineBadge />
           </div>
-          <h1 className="font-serif font-bold text-4xl md:text-5xl leading-tight text-ink">
+          <h1
+            className="font-serif font-bold text-4xl md:text-5xl leading-tight text-ink animate-fade-up"
+            style={{ animationDelay: "80ms" }}
+          >
             Your late-night study companion.
             <br />
             <span className="text-lamp">It&apos;s called Beacon.</span>
           </h1>
-          <p className="mt-5 text-muted text-lg max-w-xl mx-auto">
+          <p
+            className="mt-5 text-muted text-lg max-w-xl mx-auto animate-fade-up"
+            style={{ animationDelay: "160ms" }}
+          >
             Ask a question and get an answer immediately — no account needed.
             Sign up later if you want your conversations saved.
           </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <div
+            className="mt-8 flex flex-wrap items-center justify-center gap-3 animate-fade-up"
+            style={{ animationDelay: "240ms" }}
+          >
             <Link
               href="/chat"
               className="inline-flex items-center justify-center h-11 px-6 rounded-xl bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] font-semibold hover:brightness-105 transition-all"
@@ -215,9 +262,14 @@ export default function HomePage() {
         </section>
 
         {/* Live demo — this is the real app, not a scripted mockup */}
-        <section id="demo" className="max-w-3xl mx-auto px-4 pb-20 scroll-mt-20">
+        <section
+          id="demo"
+          className="max-w-3xl mx-auto px-4 pb-20 scroll-mt-20"
+          style={{ animation: "fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) 320ms backwards" }}
+        >
           <div
-            className={`glass-strong overflow-hidden flex flex-col ${
+            ref={demoRef}
+            className={`glass-strong overflow-hidden flex flex-col origin-top-left ${
               demoMaximized
                 ? "fixed inset-0 z-[100] rounded-none"
                 : "rounded-2xl"
@@ -227,7 +279,7 @@ export default function HomePage() {
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
               <span className="text-xs text-muted">Live and fully working — not a recording</span>
               <button
-                onClick={() => setDemoMaximized((v) => !v)}
+                onClick={toggleDemoMaximized}
                 aria-label={demoMaximized ? "Minimize demo" : "Maximize demo"}
                 title={demoMaximized ? "Minimize (Esc)" : "Maximize"}
                 className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-muted hover:text-ink hover:bg-white/[0.08] transition-colors"
@@ -235,7 +287,10 @@ export default function HomePage() {
                 {demoMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
               </button>
             </div>
-            <div className={`min-h-0 flex-1 ${demoMaximized ? "" : "h-[560px]"}`}>
+            {/* Normal mode: definite 560px height (flex-1 would fight the
+                fixed height — flex-basis 0 wins and collapses the box).
+                Maximized mode: flex-fill the viewport instead. */}
+            <div className={demoMaximized ? "min-h-0 flex-1" : "h-[560px]"}>
               <ChatWindow isAuthed={false} />
             </div>
           </div>
@@ -383,6 +438,9 @@ export default function HomePage() {
             <span>Beacon</span>
           </div>
           <span>Built for late-night studying by shauryapariharxr</span>
+          <Link href="/contact" className="hover:text-ink transition-colors">
+            Contact
+          </Link>
         </div>
       </footer>
     </div>

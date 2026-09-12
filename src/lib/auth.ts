@@ -30,20 +30,27 @@ export async function verifyPassword(password: string, hash: string) {
   return bcrypt.compare(password, hash);
 }
 
-export async function createSession(userId: string) {
-  const token = await new SignJWT({ userId })
+export async function createSessionToken(userId: string) {
+  return new SignJWT({ userId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("30d")
     .sign(secret);
+}
 
-  cookies().set(COOKIE_NAME, token, {
+export function sessionCookieOptions() {
+  return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
-  });
+  };
+}
+
+export async function createSession(userId: string) {
+  const token = await createSessionToken(userId);
+  cookies().set(COOKIE_NAME, token, sessionCookieOptions());
 }
 
 export function clearSession() {

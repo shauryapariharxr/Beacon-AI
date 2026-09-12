@@ -113,7 +113,7 @@ export function MessageBubble({ role, content }: { role: "user" | "assistant"; c
 
   if (isUser) {
     return (
-      <div className="flex justify-end">
+      <div className="flex justify-end animate-msg-in">
         <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-lamp/90 text-[#1a1204] px-4 py-2.5 text-[15px] leading-relaxed">
           {content}
         </div>
@@ -122,7 +122,7 @@ export function MessageBubble({ role, content }: { role: "user" | "assistant"; c
   }
 
   return (
-    <div className="flex justify-start">
+    <div className="flex justify-start animate-msg-in">
       <div className="max-w-[85%] rounded-2xl rounded-bl-sm glass px-4 py-3 text-[15px] leading-relaxed">
         <div className="prose prose-invert prose-sm max-w-none
           prose-p:my-1.5 prose-headings:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0

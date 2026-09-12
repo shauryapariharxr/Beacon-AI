@@ -6,3 +6,10 @@ tutor.db-*
 .env.local
 .DS_Store
 .freebuff
+
+# Build artifacts & logs
+dev-server.log
+*.log
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+next-env.d.ts

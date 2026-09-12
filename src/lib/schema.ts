@@ -4,8 +4,8 @@ export const users = pgTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
-  // Email verification: null until the user verifies. Verification tokens
-  // are stored in Redis with an expiry, not in the database.
+  // Kept for schema stability; new accounts are verified immediately on
+  // signup (no email-verification step).
   verifiedAt: bigint("verified_at", { mode: "number" }),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });

@@ -146,3 +146,79 @@ body {
   animation: thinking-bounce 1.2s ease-in-out infinite;
 }
 
+
+/* ---------- Entrance animations ---------- */
+
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Chat message entrance — quick and subtle so streaming stays readable. */
+.animate-msg-in {
+  animation: msg-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Dropdown menus. */
+.animate-pop-in {
+  animation: pop-in 0.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Page/section entrance — pair with inline animation-delay for stagger. */
+.animate-fade-up {
+  animation: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Error/notice banners. */
+.animate-toast-in {
+  animation: toast-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Accessibility: honor users who opt out of motion. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-msg-in,
+  .animate-pop-in,
+  .animate-fade-up,
+  .animate-toast-in {
+    animation: none !important;
+  }
+}

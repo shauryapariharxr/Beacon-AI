@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Mail, Lock, Eye, EyeOff, MessageCircle, MailCheck } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, MessageCircle } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -12,9 +12,6 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  // When the server requires email verification, swap the form for a
-  // "check your inbox" panel instead of logging the user in.
-  const [checkInbox, setCheckInbox] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,45 +29,18 @@ export default function SignupPage() {
       setError(data.error || "Signup failed");
       return;
     }
-    if (data.needsVerification) {
-      setCheckInbox(true);
-      return;
-    }
     router.push("/dashboard");
-  }
-
-  if (checkInbox) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen px-4 py-12 gap-6">
-        <div className="w-16 h-16 rounded-full bg-lamp/10 border border-lamp/30 flex items-center justify-center">
-          <MailCheck className="w-8 h-8 text-lamp" />
-        </div>
-        <div className="text-center">
-          <h1 className="font-serif font-bold text-3xl text-ink">Check your inbox</h1>
-          <p className="text-muted mt-3 max-w-sm">
-            We sent a verification link to <span className="text-ink font-medium">{email}</span>.
-            Click it to activate your account — the link expires in 24 hours.
-          </p>
-        </div>
-        <Link
-          href="/login"
-          className="mt-2 inline-flex items-center justify-center h-11 px-6 rounded-xl bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] font-semibold hover:brightness-105 transition-all"
-        >
-          Back to login
-        </Link>
-      </div>
-    );
   }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-4 py-12 gap-8">
-      <div className="text-center">
+      <div className="text-center animate-fade-up">
         <h1 className="font-serif font-bold text-4xl text-ink">Create your account</h1>
         <p className="text-muted mt-2">Free, no card. Save your chats forever.</p>
       </div>
 
-      <form onSubmit={submit} className="w-full max-w-sm glass-strong rounded-2xl p-6 space-y-4">
-        {error && <div className="text-sm text-red-400">{error}</div>}
+      <form onSubmit={submit} className="w-full max-w-sm glass-strong rounded-2xl p-6 space-y-4 animate-fade-up" style={{ animationDelay: "120ms" }}>
+        {error && <div className="text-sm text-red-400 animate-toast-in">{error}</div>}
 
         <div className="space-y-1.5">
           <label className="text-sm text-muted">Email</label>
@@ -133,7 +103,7 @@ export default function SignupPage() {
         </Link>
       </form>
 
-      <div className="text-sm text-muted">
+      <div className="text-sm text-muted animate-fade-up" style={{ animationDelay: "200ms" }}>
         Already have an account?{" "}
         <Link href="/login" className="text-lamp font-medium hover:underline">
           Log in
