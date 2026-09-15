@@ -24,6 +24,7 @@ async function safeJson(res: Response): Promise<any> {
 export default function DashboardPage() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -117,7 +118,7 @@ export default function DashboardPage() {
 
   if (checking) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center gap-6">
+      <div className="h-dvh flex flex-col items-center justify-center gap-6">
         <img src="/logo.svg" alt="Beacon" className="w-14 h-14 beacon-blink" />
         <div className="flex items-center gap-1.5" aria-label="Loading">
           <span className="w-2 h-2 rounded-full bg-lamp thinking-dot" style={{ animationDelay: "0ms" }} />
@@ -129,7 +130,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-dvh">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
@@ -138,6 +139,9 @@ export default function DashboardPage() {
         onDelete={deleteConversation}
         userEmail={userEmail}
         userName={userName}
+        mobileOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        onNavigate={() => setSidebarOpen(false)}
       />
       <div className="flex-1 min-w-0 h-full overflow-hidden">
         <ChatWindow
@@ -145,6 +149,7 @@ export default function DashboardPage() {
           userEmail={userEmail}
           userName={userName}
           onLogout={logout}
+          onOpenSidebar={() => setSidebarOpen(true)}
           conversationId={activeId}
           initialMessages={messages}
           chatError={chatError}

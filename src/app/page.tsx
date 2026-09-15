@@ -358,10 +358,10 @@ export default function HomePage() {
           <h2 className="font-serif font-bold text-2xl md:text-3xl text-center text-ink mb-3">
             What changes if you sign up
           </h2>
-          <p className="text-center text-muted text-sm mb-10">
+          <p className="text-center text-muted text-sm mb-10 px-4">
             Short answer: nothing about the chat itself. Only whether it's remembered.
           </p>
-          <div className="glass-strong rounded-2xl overflow-hidden">
+          <div className="glass-strong rounded-2xl overflow-x-auto">
             <div className="grid grid-cols-[1fr_auto_auto] text-sm">
               <div className="px-5 py-3 text-muted font-medium border-b border-white/[0.06]"></div>
               <div className="px-5 py-3 text-muted font-medium border-b border-white/[0.06] text-center">Guest</div>

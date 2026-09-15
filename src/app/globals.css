@@ -9,8 +9,38 @@ html, body {
   color: #eef0f4;
 }
 
+/* ---------- Mobile experience ---------- */
+
+/* Remove the gray flash when tapping links/buttons on iOS/Android. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Overscroll shows the page background, not a white flash, and momentum
+   scrolling feels native inside the chat pane. */
+html {
+  overscroll-behavior-y: none;
+}
+
 body {
   font-family: "Space Grotesk", system-ui, sans-serif;
+}
+
+/* iOS Safari zooms the page when an input's font-size is < 16px. Chat input
+   and auth forms get 16px so the keyboard never triggers that jarring zoom. */
+@media (max-width: 640px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
+/* Respect the iOS home indicator / Android gesture bar: glass bars that sit
+   at the screen edge get safe-area padding instead of being overlapped. */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top), 0.5rem);
 }
 
 ::-webkit-scrollbar {
@@ -220,5 +250,25 @@ body {
   .animate-fade-up,
   .animate-toast-in {
     animation: none !important;
+  }
+}
+
+/* Mobile perf: drop entrance animations and hover-lift effects on small
+   screens — streaming re-renders the message list constantly, and compositing
+   animated bubbles is the single biggest jank source there. Also cap DPR on
+   the syntax highlighter wrapper. */
+@media (max-width: 640px) {
+  .animate-msg-in {
+    animation: none !important;
+  }
+  .glass,
+  .glass-strong,
+  .glass-nav {
+    /* Cheaper than blur() chains on mobile GPUs. */
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .glass {
+    box-shadow: none;
   }
 }

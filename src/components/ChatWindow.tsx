@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { ArrowUp, LogOut, ChevronDown } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { ArrowUp, LogOut, ChevronDown, Menu } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
 import { ModelSelector } from "./ModelSelector";
 import { LanguageToggle } from "./LanguageToggle";
@@ -19,11 +19,13 @@ export function ChatWindow({
   initialMessages = [],
   chatError,
   onConversationCreated,
+  onOpenSidebar,
 }: {
   isAuthed: boolean;
   userEmail?: string;
   userName?: string;
   onLogout?: () => void;
+  onOpenSidebar?: () => void;
   conversationId?: string;
   initialMessages?: Msg[];
   chatError?: string | null;
@@ -40,6 +42,17 @@ export function ChatWindow({
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Track whether the user has scrolled away from the bottom while the AI
+  // streams. If they scroll up to read, we stop yanking them down on every
+  // token — a small “jump to latest” pill appears instead.
+  const isPinnedRef = useRef(true);
+  const [showJump, setShowJump] = useState(false);
+  // Coalesce streaming re-renders: the reader loop fires many times per
+  // second; painting at most once per animation frame keeps mobile GPUs
+  // happy and scrolling smooth without any perceptible latency.
+  const paintRafRef = useRef<number | null>(null);
+  const accRef = useRef("");
   const prevConvoRef = useRef(conversationId);
   const lastSyncedRef = useRef<Msg[]>([]);
   // Set when WE created the conversation mid-send, so the conversationId
@@ -98,12 +111,29 @@ export function ChatWindow({
   // Scroll the messages container only — not the whole page.
   // scrollIntoView bubbles to all scrollable ancestors which causes
   // the landing page itself to jump when streaming tokens arrive.
+  // Smart auto-scroll: follow the stream only while the user is at (or
+  // near) the bottom; otherwise leave them where they are.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) {
+    if (!el) return;
+    if (isPinnedRef.current) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }
+    setShowJump(!isPinnedRef.current);
   }, [messages]);
+
+  // Near-bottom = within 80px. Also re-pin if the user lands back at the
+  // bottom, so streaming follows them again.
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const pinned = gap < 80;
+    if (pinned !== isPinnedRef.current) {
+      isPinnedRef.current = pinned;
+      setShowJump(!pinned);
+    }
+  }, []);
 
   async function send() {
     const text = input.trim();
@@ -115,6 +145,10 @@ export function ChatWindow({
     }
     setError(null);
     setInput("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    // We're sending — definitely want to watch the reply stream in.
+    isPinnedRef.current = true;
+    setShowJump(false);
     setMessages((m) => [...m, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setSending(true);
     const gen = ++streamGenRef.current;
@@ -145,19 +179,31 @@ export function ChatWindow({
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let acc = "";
+      accRef.current = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         acc += decoder.decode(value, { stream: true });
-        setMessages((m) => {
-          // A view switch bumped the generation mid-stream — stop painting.
-          // The reply is saved server-side and will load when the user opens
-          // this conversation again.
-          if (streamGenRef.current !== gen) return m;
-          const copy = [...m];
-          copy[copy.length - 1] = { role: "assistant", content: acc };
-          return copy;
-        });
+        accRef.current = acc;
+        // Paint at most once per animation frame while streaming. The raw
+        // reader loop can fire dozens of times per second on fast models;
+        // coalescing to one setState per frame keeps mobile GPUs (and
+        // low-end Androids especially) smooth with zero perceptible delay.
+        if (paintRafRef.current === null) {
+          paintRafRef.current = requestAnimationFrame(() => {
+            paintRafRef.current = null;
+            const text = accRef.current;
+            setMessages((m) => {
+              // A view switch bumped the generation mid-stream — stop painting.
+              // The reply is saved server-side and will load when the user opens
+              // this conversation again.
+              if (streamGenRef.current !== gen) return m;
+              const copy = [...m];
+              copy[copy.length - 1] = { role: "assistant", content: text };
+              return copy;
+            });
+          });
+        }
       }
     } catch (e: any) {
       setError(e.message || "Failed to send message");
@@ -165,6 +211,18 @@ export function ChatWindow({
     } finally {
       setSending(false);
       activeStreamGenRef.current = null;
+      // Flush any token that arrived between the last read and now.
+      if (paintRafRef.current !== null) {
+        cancelAnimationFrame(paintRafRef.current);
+        paintRafRef.current = null;
+        const finalText = accRef.current;
+        setMessages((m) => {
+          if (streamGenRef.current !== gen) return m;
+          const copy = [...m];
+          copy[copy.length - 1] = { role: "assistant", content: finalText };
+          return copy;
+        });
+      }
     }
   }
 
@@ -175,7 +233,18 @@ export function ChatWindow({
   return (
     <div className="flex flex-col h-full">
       <div className="shrink-0 flex justify-between items-center px-4 py-3 gap-2 border-b border-white/[0.06]">
-        <ModelSelector value={model} onChange={setModel} isAuthed={isAuthed} />
+        <div className="flex items-center gap-2 min-w-0">
+          {onOpenSidebar && (
+            <button
+              onClick={onOpenSidebar}
+              className="md:hidden p-2 -ml-1.5 rounded-lg text-muted hover:text-ink hover:bg-white/[0.06] transition-colors"
+              aria-label="Open menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          )}
+          <ModelSelector value={model} onChange={setModel} isAuthed={isAuthed} />
+        </div>
         <div className="flex items-center gap-2">
           <LanguageToggle value={lang} onChange={setLang} />
           {isAuthed && userEmail && (
@@ -211,7 +280,12 @@ export function ChatWindow({
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      <div className="relative flex-1 min-h-0">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto px-4 py-6 space-y-4"
+        >
         {messages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-center gap-3 px-4">
             <div className="w-14 h-14 rounded-full glass flex items-center justify-center mb-1">
@@ -268,16 +342,45 @@ export function ChatWindow({
           </div>
         )}
         <div ref={bottomRef} />
+        </div>
+        {showJump && (
+          <button
+            onClick={() => {
+              const el = scrollRef.current;
+              if (!el) return;
+              isPinnedRef.current = true;
+              setShowJump(false);
+              el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+            }}
+            aria-label="Jump to latest"
+            className="absolute bottom-3 right-4 z-10 glass-strong rounded-full px-3 py-1.5 text-xs text-ink shadow-lg animate-pop-in"
+          >
+            ↓ Latest
+          </button>
+        )}
       </div>
 
-      <div className="shrink-0 p-3 md:p-4">
+      <div className="shrink-0 p-3 md:p-4 pb-safe">
         <div className="max-w-4xl mx-auto w-full">
           <div className="glass-strong rounded-2xl p-2 flex gap-2 items-end">
             <textarea
+              ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                // Auto-grow up to ~5 rows, then scroll internally.
+                const el = e.target;
+                el.style.height = "auto";
+                el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+              }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                // Phones: Enter makes a newline (no hardware keyboard, and
+                // mobile virtual keyboards make accidental sends common).
+                // Desktop: Enter sends, Shift+Enter newlines.
+                const isMobile =
+                  typeof window !== "undefined" &&
+                  window.matchMedia("(pointer: coarse)").matches;
+                if (e.key === "Enter" && !e.shiftKey && !isMobile) {
                   e.preventDefault();
                   send();
                 }

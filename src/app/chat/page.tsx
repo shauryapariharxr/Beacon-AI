@@ -6,7 +6,7 @@ import { ChatWindow } from "@/components/ChatWindow";
 
 export default function GuestChatPage() {
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-dvh flex flex-col">
       {/* Slim top bar — back to home + branding, chat fills the rest */}
       <div className="shrink-0 h-11 px-4 flex items-center gap-3 border-b border-white/[0.06]">
         <Link
@@ -20,7 +20,7 @@ export default function GuestChatPage() {
           <img src="/logo.svg" alt="Beacon" className="w-5 h-5" />
           <span className="font-serif font-semibold text-sm text-ink">Beacon</span>
         </Link>
-        <span className="ml-auto text-xs text-muted flex items-center gap-1.5">
+        <span className="ml-auto text-xs text-muted hidden md:flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           Guest mode — sign up to save your chats
         </span>

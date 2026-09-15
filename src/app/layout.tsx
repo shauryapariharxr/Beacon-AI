@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -25,6 +25,17 @@ export const metadata: Metadata = {
     title: "Beacon — Your free AI study buddy",
     description: "Ask anything, get instant answers. No signup needed.",
   },
+};
+
+// Mobile: device-width + cover so the chat input clears the iOS home
+// indicator; resizes-content makes the Android keyboard shrink the layout
+// instead of covering it.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
+  themeColor: "#0f1218",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
