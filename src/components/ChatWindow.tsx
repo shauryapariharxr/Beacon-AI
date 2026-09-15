@@ -13,6 +13,7 @@ type Msg = { role: "user" | "assistant"; content: string };
 export function ChatWindow({
   isAuthed,
   userEmail,
+  userName,
   onLogout,
   conversationId,
   initialMessages = [],
@@ -21,6 +22,7 @@ export function ChatWindow({
 }: {
   isAuthed: boolean;
   userEmail?: string;
+  userName?: string;
   onLogout?: () => void;
   conversationId?: string;
   initialMessages?: Msg[];
@@ -122,7 +124,7 @@ export function ChatWindow({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, modelKey: model, conversationId: convoId }),
+        body: JSON.stringify({ message: text, modelKey: model, lang, conversationId: convoId }),
       });
 
       if (!res.ok || !res.body) {
@@ -166,7 +168,9 @@ export function ChatWindow({
     }
   }
 
-  const displayName = userEmail ? userEmail.split("@")[0] : "";
+  const displayName =
+    (userName && userName.trim()) ||
+    (userEmail ? userEmail.split("@")[0] : "");
 
   return (
     <div className="flex flex-col h-full">
@@ -181,7 +185,7 @@ export function ChatWindow({
                 className="flex items-center gap-1 hover:opacity-90 transition-opacity"
               >
                 <span className="w-8 h-8 rounded-full bg-lamp/90 text-[#1a1204] flex items-center justify-center text-sm font-semibold">
-                  {userEmail[0].toUpperCase()}
+                  {(displayName || "?")[0].toUpperCase()}
                 </span>
                 <ChevronDown className="w-3.5 h-3.5 text-muted" />
               </button>

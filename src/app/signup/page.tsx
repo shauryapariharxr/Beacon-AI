@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Mail, Lock, Eye, EyeOff, MessageCircle } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, MessageCircle, User } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -20,7 +21,7 @@ export default function SignupPage() {
     const res = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ name, email, password }),
     });
     setLoading(false);
     const data = await res.json().catch(() => ({}));
@@ -41,6 +42,22 @@ export default function SignupPage() {
 
       <form onSubmit={submit} className="w-full max-w-sm glass-strong rounded-2xl p-6 space-y-4 animate-fade-up" style={{ animationDelay: "120ms" }}>
         {error && <div className="text-sm text-red-400 animate-toast-in">{error}</div>}
+
+        <div className="space-y-1.5">
+          <label className="text-sm text-muted">Name</label>
+          <div className="relative">
+            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+            <input
+              type="text"
+              required
+              maxLength={60}
+              placeholder="Your name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full bg-black/20 border border-white/10 rounded-xl pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-lamp"
+            />
+          </div>
+        </div>
 
         <div className="space-y-1.5">
           <label className="text-sm text-muted">Email</label>

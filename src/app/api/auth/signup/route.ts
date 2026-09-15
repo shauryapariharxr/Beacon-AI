@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { email, password } = await req.json();
+    const { email, password, name } = await req.json();
 
     if (
       typeof email !== "string" ||
@@ -31,6 +31,20 @@ export async function POST(req: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "Valid email and a password of 8–200 characters are required" },
+        { status: 400 }
+      );
+    }
+
+    // Name is mandatory: trim, cap length, reject empties. Server-side
+    // enforcement so bypassing the form's `required` attr gains nothing.
+    let cleanName: string | null = null;
+    if (typeof name === "string") {
+      cleanName = name.trim().slice(0, 60);
+      if (cleanName === "") cleanName = null;
+    }
+    if (!cleanName) {
+      return NextResponse.json(
+        { error: "Name is required to create an account" },
         { status: 400 }
       );
     }
@@ -48,12 +62,13 @@ export async function POST(req: NextRequest) {
       id,
       email: normalizedEmail,
       passwordHash,
+      name: cleanName,
       verifiedAt: Date.now(), // no email verification: accounts are active immediately
       createdAt: Date.now(),
     });
 
     await createSession(id);
-    return NextResponse.json({ id, email: normalizedEmail });
+    return NextResponse.json({ id, email: normalizedEmail, name: cleanName });
   } catch (err: any) {
     console.error("Signup failed:", err);
     return NextResponse.json(

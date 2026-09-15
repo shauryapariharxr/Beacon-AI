@@ -25,6 +25,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [userEmail, setUserEmail] = useState("");
+  const [userName, setUserName] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -40,6 +41,7 @@ export default function DashboardPage() {
         return;
       }
       setUserEmail(data.user.email);
+      setUserName(data.user.name || "");
       setChecking(false);
       loadConversations();
     })();
@@ -135,11 +137,13 @@ export default function DashboardPage() {
         onNewChat={newChat}
         onDelete={deleteConversation}
         userEmail={userEmail}
+        userName={userName}
       />
       <div className="flex-1 min-w-0 h-full overflow-hidden">
         <ChatWindow
           isAuthed
           userEmail={userEmail}
+          userName={userName}
           onLogout={logout}
           conversationId={activeId}
           initialMessages={messages}

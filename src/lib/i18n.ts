@@ -1,10 +1,15 @@
-export type Lang = "en" | "roman-ur" | "ur";
+export type Lang = "en" | "hinglish" | "roman-ur" | "ur";
 
 export const LANGS: { key: Lang; label: string }[] = [
   { key: "en", label: "English" },
+  { key: "hinglish", label: "Hinglish" },
   { key: "roman-ur", label: "Roman Urdu" },
   { key: "ur", label: "اردو" },
 ];
+
+export function isValidLang(value: unknown): value is Lang {
+  return LANGS.some((l) => l.key === value);
+}
 
 const dict: Record<Lang, Record<string, string>> = {
   en: {
@@ -17,6 +22,17 @@ const dict: Record<Lang, Record<string, string>> = {
     logout: "Log out",
     newChat: "New chat",
     guestNotice: "Chatting as guest. Sign up to save your conversations.",
+  },
+  hinglish: {
+    appName: "Beacon",
+    tagline: "Aapka apna AI study buddy",
+    placeholder: "Kuch bhi poocho...",
+    send: "Bhejo",
+    login: "Login karo",
+    signup: "Account banao",
+    logout: "Logout",
+    newChat: "Nayi chat",
+    guestNotice: "Aap guest ki tarah chat kar rahe ho. Conversations save karne ke liye sign up karo.",
   },
   "roman-ur": {
     appName: "Beacon",

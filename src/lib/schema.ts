@@ -4,6 +4,9 @@ export const users = pgTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  // Signup requires a name (enforced in the API); the column stays
+  // nullable as a safety net for any data imported outside the app.
+  name: text("name"),
   // Kept for schema stability; new accounts are verified immediately on
   // signup (no email-verification step).
   verifiedAt: bigint("verified_at", { mode: "number" }),

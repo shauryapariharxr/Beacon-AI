@@ -3,7 +3,7 @@
 import { useState, Fragment, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ChevronDown, Check, Minus, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronDown, Check, Minus, Maximize2, Minimize2, Code2 } from "lucide-react";
 import { ChatWindow } from "@/components/ChatWindow";
 import { MODELS } from "@/lib/models";
 
@@ -22,7 +22,7 @@ const FEATURES = [
   },
   {
     title: "Answers in your language",
-    body: "Ask in English, Roman Urdu, or Urdu script. The whole interface — not just the chat — switches with you.",
+    body: "Ask in English, Hinglish, Roman Urdu, or Urdu script — and Beacon replies in the same language, not just translates the menu.",
   },
   {
     title: "Streamed, not delayed",
@@ -72,7 +72,7 @@ const FAQS = [
   },
   {
     q: "Which languages does Beacon support?",
-    a: "English, Roman Urdu, and Urdu script — for the interface and your conversations, not just a translated label or two.",
+    a: "English, Hinglish, Roman Urdu, and Urdu script — for the interface and the replies. Type in Hinglish and Beacon answers in Hinglish too.",
   },
   {
     q: "Can Beacon help with code, not just homework?",
@@ -208,14 +208,21 @@ export default function HomePage() {
             <Link href="/contact" className="hover:text-ink transition-colors">Contact</Link>
           </nav>
           <div className="flex items-center gap-4">
-            <Link href="/login" className="text-sm text-muted hover:text-ink transition-colors">
-              Log in
-            </Link>
+            <a
+              href="https://github.com/shauryapariharxr/Beacon-AI"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Source code"
+              title="Source code"
+              className="flex items-center justify-center text-muted hover:text-ink transition-colors"
+            >
+              <Code2 className="w-[18px] h-[18px]" />
+            </a>
             <Link
-              href="/signup"
+              href="/login"
               className="text-sm bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] font-semibold px-3.5 py-1.5 rounded-full hover:brightness-105 transition-all"
             >
-              Sign up
+              Log in
             </Link>
           </div>
         </div>

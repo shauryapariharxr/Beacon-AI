@@ -13,6 +13,7 @@ export function Sidebar({
   onNewChat,
   onDelete,
   userEmail,
+  userName,
 }: {
   conversations: Conversation[];
   activeId?: string;
@@ -20,9 +21,10 @@ export function Sidebar({
   onNewChat: () => void;
   onDelete: (id: string) => void;
   userEmail: string;
+  userName?: string;
 }) {
-  const initial = userEmail ? userEmail[0].toUpperCase() : "?";
-  const displayName = userEmail ? userEmail.split("@")[0] : "";
+  const displayName = (userName && userName.trim()) || (userEmail ? userEmail.split("@")[0] : "");
+  const initial = displayName ? displayName[0].toUpperCase() : "?";
 
   return (
     <div className="w-64 shrink-0 panel-flat border-r flex flex-col h-full">

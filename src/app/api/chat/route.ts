@@ -12,6 +12,7 @@ import {
   markProviderUnavailable,
   providerCount,
 } from "@/lib/providers";
+import { isValidLang, Lang } from "@/lib/i18n";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
 
 // Abuse guard: signed-in users get a generous budget, guests a tighter one
@@ -28,6 +29,38 @@ const MAX_HISTORY_TURNS = 40;
 // for a while so the same broken mapping isn't retried on every request.
 const HARD_FAIL_STATUSES = new Set([403, 404]);
 
+const LANG_INSTRUCTIONS: Record<Lang, string> = {
+  en:
+    "LANGUAGE RULES:\n" +
+    "- Default to English replies.\n" +
+    "- If the user writes in Hindi (Devanagari), Roman Urdu, or Urdu script, reply in that same language and script.\n" +
+    "- If the user writes in Hinglish (Hindi written in Roman script mixed with English words), reply in Hinglish too — match their tone.\n" +
+    "- Otherwise reply in the user's own language.",
+  hinglish:
+    "LANGUAGE RULES (Hinglish mode — highest priority, overrides everything above):\n" +
+    "- Always reply in Hinglish: Hindi written in Roman (Latin) script, naturally mixed with English words — the way young Indians text: \"Bhai, ye concept simple hai...\"\n" +
+    "- Never write Devanagari in Hinglish mode. Only Roman script + common English words.\n" +
+    "- Keep technical terms in English (API, function, class, async, database, etc.) — never translate them.\n" +
+    "- Tone matters too: casual, friendly, like helping a friend over chat.\n" +
+    "- Even if the user writes in English, still reply in Hinglish while this mode is active.\n" +
+    "- Code, code comments and identifiers stay in standard English; only your explanation text is Hinglish.",
+  "roman-ur":
+    "LANGUAGE RULES (Roman Urdu mode — highest priority, overrides everything above):\n" +
+    "- Always reply in Roman Urdu: Urdu/Hindi written in Roman (Latin) script, the way people text in Pakistan/India.\n" +
+    "- Never write Urdu script (Arabic-based) or Devanagari in this mode — Roman script only.\n" +
+    "- Keep technical terms in English; only explanation text is Roman Urdu.\n" +
+    "- Even if the user writes in English, still reply in Roman Urdu while this mode is active.",
+  ur:
+    "LANGUAGE RULES (Urdu mode — highest priority, overrides everything above):\n" +
+    "- Always reply in Urdu written in Urdu script (Arabic-based), not Roman.\n" +
+    "- Keep technical terms in English; only explanation text is Urdu.\n" +
+    "- Even if the user writes in English, still reply in Urdu while this mode is active.",
+};
+
+function buildLanguageRules(lang: Lang): string {
+  return "\n" + LANG_INSTRUCTIONS[lang];
+}
+
 export async function POST(req: NextRequest) {
   // A malformed body (bad content-type, truncated request) used to throw
   // uncaught and surface as an opaque 500 — reject it cleanly instead.
@@ -37,11 +70,14 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
   }
-  const { message, modelKey, conversationId } = body as {
+  const { message, modelKey, lang, conversationId } = body as {
     message: string;
     modelKey: string;
+    lang?: string;
     conversationId?: string;
   };
+
+  const replyLang: Lang = isValidLang(lang) ? lang : "en";
 
   if (!message || typeof message !== "string") {
     return NextResponse.json({ error: "Message is required" }, { status: 400 });
@@ -162,7 +198,8 @@ export async function POST(req: NextRequest) {
     "- Use markdown: **bold** for emphasis, headers for sections, bullet lists for steps.\n" +
     "- For code: explain briefly, then show the code. Don't explain every line.\n" +
     "- Keep explanations under 200 words unless the user asks for detail.\n" +
-    "- Never repeat the question back. Start with the answer.";
+    "- Never repeat the question back. Start with the answer.\n" +
+    buildLanguageRules(replyLang);
 
   // Try up to N providers (one attempt per configured provider): round-robin
   // picks a healthy one; if it's rate-limited (429), it goes on a 60s cooldown
