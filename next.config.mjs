@@ -6,7 +6,11 @@ const nextConfig = {
   // CommonJS that dynamically requires ESM internals. Bundling it into the
   // serverless output breaks at runtime on Vercel with ERR_REQUIRE_ESM.
   // Treating it as external keeps Node resolving it normally at runtime.
-  serverExternalPackages: ["firebase-admin", "firebase-admin/app", "firebase-admin/auth"],
+  // NOTE: this option lives under `experimental` in Next.js 14 — the top-level
+  // `serverExternalPackages` key only exists in Next.js 15+.
+  experimental: {
+    serverComponentsExternalPackages: ["firebase-admin"],
+  },
   async headers() {
     return [
       {
