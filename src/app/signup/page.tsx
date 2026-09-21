@@ -1,9 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Mail, Lock, Eye, EyeOff, MessageCircle, User } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, MessageCircle, User, Loader2 } from "lucide-react";
+import {
+  firebaseGithubIdToken,
+  firebaseGoogleIdToken,
+  firebaseSignUpIdToken,
+  isFirebaseConfigured,
+} from "@/lib/firebase";
+import { GithubButton, GoogleButton } from "@/components/AuthProviderButtons";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -13,11 +20,55 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [googleReady, setGoogleReady] = useState(isFirebaseConfigured);
+
+  useEffect(() => {
+    fetch("/api/auth/login", { method: "OPTIONS" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.firebaseConfigured === "boolean") {
+          setGoogleReady(d.firebaseConfigured && isFirebaseConfigured);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  /** Exchange a Firebase ID token for a Beacon session cookie. */
+  async function exchangeToken(idToken: string): Promise<boolean> {
+    const res = await fetch("/api/auth/firebase", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    if (res.ok) return true;
+    const data = await res.json().catch(() => ({}));
+    setError(data.error || "Signup failed");
+    return false;
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError(null);
+
+    if (googleReady) {
+      // Firebase path: create the Firebase account first, then exchange the
+      // ID token for the app session (the server stores the name too).
+      setLoading(true);
+      try {
+        const idToken = await firebaseSignUpIdToken(name.trim(), email.trim(), password);
+        if (await exchangeToken(idToken)) {
+          router.push("/dashboard");
+          return;
+        }
+      } catch (err: any) {
+        setError(err?.message || "Signup failed");
+      }
+      setLoading(false);
+      return;
+    }
+
+    // Legacy path (Firebase not configured): original API call.
+    setLoading(true);
     const res = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -31,6 +82,18 @@ export default function SignupPage() {
       return;
     }
     router.push("/dashboard");
+  }
+
+  async function providerSignIn(getToken: () => Promise<string>) {
+    setError(null);
+    setLoading(true);
+    try {
+      const idToken = await getToken();
+      if (await exchangeToken(idToken)) router.push("/dashboard");
+    } catch (err: any) {
+      setError(err?.message || "Sign-in failed");
+    }
+    setLoading(false);
   }
 
   return (
@@ -100,12 +163,28 @@ export default function SignupPage() {
 
         <button
           disabled={loading}
-          className="w-full bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] font-semibold rounded-xl py-2.5 disabled:opacity-40 hover:brightness-105 transition-all"
+          className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] font-semibold rounded-xl py-2.5 disabled:opacity-40 hover:brightness-105 transition-all"
         >
+          {loading && <Loader2 className="w-4 h-4 animate-spin" />}
           {loading ? "Creating account..." : "Sign Up"}
         </button>
 
-        <div className="flex items-center gap-3 py-1">
+        {googleReady && (
+          <>
+            <div className="flex items-center gap-3 pt-1">
+              <div className="flex-1 h-px bg-white/10" />
+              <span className="text-xs text-muted">or</span>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
+
+            <div className="space-y-2">
+              <GoogleButton onClick={() => providerSignIn(firebaseGoogleIdToken)} disabled={loading} />
+              <GithubButton onClick={() => providerSignIn(firebaseGithubIdToken)} disabled={loading} />
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center gap-3 pt-1">
           <div className="flex-1 h-px bg-white/10" />
           <span className="text-xs text-muted">or</span>
           <div className="flex-1 h-px bg-white/10" />

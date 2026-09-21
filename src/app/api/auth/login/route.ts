@@ -4,8 +4,15 @@ import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { verifyPassword, createSession } from "@/lib/auth";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
+import { ensureFirebaseUser, isFirebaseAdminConfigured } from "@/lib/firebaseAdmin";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+// Capability probe: tells the auth pages whether the server can verify
+// Firebase tokens (service account set). No secrets returned.
+export async function OPTIONS() {
+  return NextResponse.json({ firebaseConfigured: isFirebaseAdminConfigured() });
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,6 +46,17 @@ export async function POST(req: NextRequest) {
 
     const DUMMY_HASH = "$2a$10$C6UzMDM.H6dfI/f/IKcEe.Ie1sMU0mFPEKGgD8DwNiUyOQXgbSgAi"; // bcrypt of random data
     const passwordHash = user?.passwordHash ?? DUMMY_HASH;
+
+    // Firebase-managed accounts (Google sign-in) have an unusable
+    // "firebase:..." hash — route them to Google sign-in instead of
+    // pretending a password login failed.
+    if (user && user.passwordHash.startsWith("firebase:")) {
+      return NextResponse.json(
+        { error: "This account uses Google sign-in. Use the Continue with Google button." },
+        { status: 403 }
+        );
+    }
+
     const valid = await verifyPassword(password, passwordHash);
 
     if (!user || !valid) {
@@ -46,8 +64,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
     }
 
+    // Mirror the account into Firebase (best-effort, non-blocking for the
+    // login itself) so "Forgot password" emails work for legacy users too.
+    if (isFirebaseAdminConfigured()) {
+      await ensureFirebaseUser(normalizedEmail, { password });
+    }
+
     await createSession(user.id);
-    return NextResponse.json({ id: user.id, email: user.email });
+    return NextResponse.json({ id: user.id, email: user.email, firebaseConfigured: isFirebaseAdminConfigured() });
   } catch (err: any) {
     console.error("Login failed:", err);
     return NextResponse.json(

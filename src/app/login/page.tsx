@@ -1,9 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Mail, Lock, Eye, EyeOff, MessageCircle } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, MessageCircle, Loader2, CheckCircle2 } from "lucide-react";
+import {
+  firebaseEmailPasswordIdToken,
+  firebaseGithubIdToken,
+  firebaseGoogleIdToken,
+  firebaseSendPasswordReset,
+  isFirebaseConfigured,
+} from "@/lib/firebase";
+import { GithubButton, GoogleButton } from "@/components/AuthProviderButtons";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,12 +19,90 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [useFirebase, setUseFirebase] = useState(isFirebaseConfigured);
+  const [googleReady, setGoogleReady] = useState(isFirebaseConfigured);
+
+  useEffect(() => {
+    // The server may intentionally fall back to legacy auth (e.g. service
+    // account not set) even when the client config exists — respect that.
+    fetch("/api/auth/login", { method: "OPTIONS" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.firebaseConfigured === "boolean") {
+          setUseFirebase(d.firebaseConfigured && isFirebaseConfigured);
+          setGoogleReady(d.firebaseConfigured && isFirebaseConfigured);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  /** Exchange a Firebase ID token for a Beacon session cookie. */
+  async function exchangeToken(idToken: string): Promise<boolean> {
+    const res = await fetch("/api/auth/firebase", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    if (res.ok) return true;
+    const data = await res.json().catch(() => ({}));
+    setError(data.error || "Sign-in failed");
+    return false;
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setInfo(null);
+
+    if (useFirebase) {
+      // Firebase-first: authenticate with Firebase, then exchange the ID
+      // token for the app's own session cookie.
+      try {
+        const idToken = await firebaseEmailPasswordIdToken(email.trim(), password);
+        const ok = await exchangeToken(idToken);
+        if (ok) {
+          router.push("/dashboard");
+          return;
+        }
+      } catch (err: any) {
+        // Legacy accounts have no Firebase mirror until their first login —
+        // retry once against the original endpoint (which provisions the
+        // mirror on success, so next time the Firebase path works).
+        const fbCode = typeof err?.code === "string" ? err.code : "";
+        const maybeLegacy = [
+          "user-not-found",
+          "invalid-credential",
+          "wrong-password",
+          "configuration-not-found",
+          "operation-not-allowed",
+          "invalid-api-key",
+          "network-request-failed",
+        ].includes(fbCode);
+        if (maybeLegacy) {
+          const res = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            router.push("/dashboard");
+            return;
+          }
+          setError(data.error || "Login failed");
+          setLoading(false);
+          return;
+        }
+        setError(err?.message || "Login failed");
+      }
+      setLoading(false);
+      return;
+    }
+
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -32,6 +118,37 @@ export default function LoginPage() {
     setError(data.error || "Login failed");
   }
 
+  async function providerSignIn(getToken: () => Promise<string>) {
+    setError(null);
+    setInfo(null);
+    setLoading(true);
+    try {
+      const idToken = await getToken();
+      if (await exchangeToken(idToken)) router.push("/dashboard");
+    } catch (err: any) {
+      setError(err?.message || "Sign-in failed");
+    }
+    setLoading(false);
+  }
+
+  async function forgotPassword() {
+    setError(null);
+    setInfo(null);
+    const clean = email.trim();
+    if (!clean || !clean.includes("@")) {
+      setError("Type your email above first, then tap 'Forgot password?'");
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await firebaseSendPasswordReset(clean);
+      setInfo(`Password reset email sent to ${clean}. Check your inbox (and spam).`);
+    } catch (err: any) {
+      setError(err?.message || "Couldn't send the reset email");
+    }
+    setResetLoading(false);
+  }
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-4 py-12 gap-8">
       <div className="text-center animate-fade-up">
@@ -41,6 +158,12 @@ export default function LoginPage() {
 
       <form onSubmit={submit} className="w-full max-w-sm glass-strong rounded-2xl p-6 space-y-4 animate-fade-up" style={{ animationDelay: "120ms" }}>
         {error && <div className="text-sm text-red-400 animate-toast-in">{error}</div>}
+        {info && (
+          <div className="text-sm text-green-400 animate-toast-in flex items-start gap-1.5">
+            <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>{info}</span>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <label className="text-sm text-muted">Email</label>
@@ -58,7 +181,19 @@ export default function LoginPage() {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-sm text-muted">Password</label>
+          <div className="flex items-center justify-between">
+            <label className="text-sm text-muted">Password</label>
+            {googleReady && (
+              <button
+                type="button"
+                onClick={forgotPassword}
+                disabled={resetLoading}
+                className="text-xs text-muted hover:text-lamp transition-colors disabled:opacity-50"
+              >
+                {resetLoading ? "Sending…" : "Forgot password?"}
+              </button>
+            )}
+          </div>
           <div className="relative">
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
             <input
@@ -82,12 +217,28 @@ export default function LoginPage() {
 
         <button
           disabled={loading}
-          className="w-full bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] font-semibold rounded-xl py-2.5 disabled:opacity-40 hover:brightness-105 transition-all"
+          className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] font-semibold rounded-xl py-2.5 disabled:opacity-40 hover:brightness-105 transition-all"
         >
+          {loading && <Loader2 className="w-4 h-4 animate-spin" />}
           {loading ? "Signing in..." : "Sign In"}
         </button>
 
-        <div className="flex items-center gap-3 py-1">
+        {googleReady && (
+          <>
+            <div className="flex items-center gap-3 pt-1">
+              <div className="flex-1 h-px bg-white/10" />
+              <span className="text-xs text-muted">or</span>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
+
+            <div className="space-y-2">
+              <GoogleButton onClick={() => providerSignIn(firebaseGoogleIdToken)} disabled={loading} />
+              <GithubButton onClick={() => providerSignIn(firebaseGithubIdToken)} disabled={loading} />
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center gap-3 pt-1">
           <div className="flex-1 h-px bg-white/10" />
           <span className="text-xs text-muted">or</span>
           <div className="flex-1 h-px bg-white/10" />

@@ -7,6 +7,9 @@ export const users = pgTable("users", {
   // Signup requires a name (enforced in the API); the column stays
   // nullable as a safety net for any data imported outside the app.
   name: text("name"),
+  // Set when the account was created through / linked to Firebase Auth
+  // (Google sign-in or Firebase email/password). Null for legacy accounts.
+  firebaseUid: text("firebase_uid"),
   // Kept for schema stability; new accounts are verified immediately on
   // signup (no email-verification step).
   verifiedAt: bigint("verified_at", { mode: "number" }),

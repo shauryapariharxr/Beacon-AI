@@ -5,6 +5,7 @@ import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { hashPassword, createSession } from "@/lib/auth";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
+import { ensureFirebaseUser, isFirebaseAdminConfigured } from "@/lib/firebaseAdmin";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MAX_PASSWORD_LENGTH = 200; // bcrypt input cap guard (72-byte limit)
@@ -66,6 +67,12 @@ export async function POST(req: NextRequest) {
       verifiedAt: Date.now(), // no email verification: accounts are active immediately
       createdAt: Date.now(),
     });
+
+    // Mirror the account into Firebase Auth (best-effort) so Firebase
+    // password-reset emails work for this user right away.
+    if (isFirebaseAdminConfigured()) {
+      await ensureFirebaseUser(normalizedEmail, { password });
+    }
 
     await createSession(id);
     return NextResponse.json({ id, email: normalizedEmail, name: cleanName });
