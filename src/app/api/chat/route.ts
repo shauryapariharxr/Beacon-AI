@@ -12,7 +12,6 @@ import {
   markProviderUnavailable,
   providerCount,
 } from "@/lib/providers";
-import { isValidLang, Lang } from "@/lib/i18n";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
 
 // Abuse guard: signed-in users get a generous budget, guests a tighter one
@@ -29,36 +28,75 @@ const MAX_HISTORY_TURNS = 40;
 // for a while so the same broken mapping isn't retried on every request.
 const HARD_FAIL_STATUSES = new Set([403, 404]);
 
-const LANG_INSTRUCTIONS: Record<Lang, string> = {
+// ---------- Reply-language detection ----------
+// The model should mirror the language of the user's LATEST message — not the
+// conversation's dominant language (the classic bug: Hinglish history makes
+// every later English question get a Hindi answer). We detect cheaply on the
+// server and inject an explicit, unambiguous directive into the prompt.
+
+type ReplyLang = "en" | "hinglish" | "hi" | "ur";
+
+function countCharsInRanges(s: string, ranges: [number, number][]): number {
+  let n = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0)!;
+    if (ranges.some(([lo, hi]) => c >= lo && c <= hi)) n++;
+  }
+  return n;
+}
+
+// Roman-script Hindi/Urdu markers — words that don't exist in English, so a
+// single word-boundary hit is a strong signal.
+const INDIC_ROMAN_RE =
+  /\b(bhai|yaar|nahi|nahin|kya|kyu|kyun|kyon|kaise|kaisa|kaisi|samajh|samjh|batao|bata|matlab|thoda|bahut|bohot|acha|achha|theek|mera|meri|apna|apni|tum|aap|tujhe|mujhe|karna|karo|karta|karti|karte|raha|rahi|rhe|rha|hai|hain|hota|hoti|hote|chahiye|wala|wali|jaldi|zyada|kuch|koi|abhi|aaj|namaste|shukriya|kal|sab|idhar|udhar|achsa|dost|padh|likh|sun|dekho|dekho|chal|chalo|rehna|milta|hoga|hogi)\b/gi;
+
+function detectReplyLang(message: string): ReplyLang {
+  const devanagari = countCharsInRanges(message, [[0x0900, 0x097f]]);
+  const arabicScript = countCharsInRanges(message, [
+    [0x0600, 0x06ff],
+    [0x0750, 0x077f],
+  ]);
+  const latin = (message.match(/[a-zA-Z]/g) || []).length;
+
+  // Script detection by proportion: a stray borrowed word ("What does कर्म
+  // mean?") must not flip the whole reply to that script.
+  if (devanagari > 0 && devanagari >= latin) return "hi";
+  if (arabicScript > 0 && arabicScript >= latin) return "ur";
+
+  const romanHits = (message.match(INDIC_ROMAN_RE) || []).length;
+  if (romanHits > 0) return "hinglish";
+
+  return "en";
+}
+
+const REPLY_LANG_RULES: Record<ReplyLang, string> = {
   en:
-    "LANGUAGE RULES:\n" +
-    "- Default to English replies.\n" +
-    "- If the user writes in Hindi (Devanagari), Roman Urdu, or Urdu script, reply in that same language and script.\n" +
-    "- If the user writes in Hinglish (Hindi written in Roman script mixed with English words), reply in Hinglish too — match their tone.\n" +
-    "- Otherwise reply in the user's own language.",
+    "REPLY LANGUAGE — DETECTED: ENGLISH (highest priority instruction):\n" +
+    "- Write your ENTIRE reply in clear English.\n" +
+    "- Do NOT reply in Hindi, Devanagari, Hinglish, or Urdu in this turn — even if earlier messages in the conversation history are in those languages. The history's language is irrelevant; follow the latest message.\n" +
+    "- Keep technical terms in English (they already are).",
   hinglish:
-    "LANGUAGE RULES (Hinglish mode — highest priority, overrides everything above):\n" +
-    "- Always reply in Hinglish: Hindi written in Roman (Latin) script, naturally mixed with English words — the way young Indians text: \"Bhai, ye concept simple hai...\"\n" +
-    "- Never write Devanagari in Hinglish mode. Only Roman script + common English words.\n" +
-    "- Keep technical terms in English (API, function, class, async, database, etc.) — never translate them.\n" +
-    "- Tone matters too: casual, friendly, like helping a friend over chat.\n" +
-    "- Even if the user writes in English, still reply in Hinglish while this mode is active.\n" +
-    "- Code, code comments and identifiers stay in standard English; only your explanation text is Hinglish.",
-  "roman-ur":
-    "LANGUAGE RULES (Roman Urdu mode — highest priority, overrides everything above):\n" +
-    "- Always reply in Roman Urdu: Urdu/Hindi written in Roman (Latin) script, the way people text in Pakistan/India.\n" +
-    "- Never write Urdu script (Arabic-based) or Devanagari in this mode — Roman script only.\n" +
-    "- Keep technical terms in English; only explanation text is Roman Urdu.\n" +
-    "- Even if the user writes in English, still reply in Roman Urdu while this mode is active.",
+    "REPLY LANGUAGE — DETECTED: HINGLISH (highest priority instruction):\n" +
+    "- Reply in Hinglish: Hindi written in Roman (Latin) script naturally mixed with English words — the way young Indians text: \"Bhai, ye concept simple hai…\"\n" +
+    "- Never use Devanagari or Urdu script in this turn — Roman script only.\n" +
+    "- Match the user's casual tone; keep technical terms and code in English.",
+  hi:
+    "REPLY LANGUAGE — DETECTED: HINDI (highest priority instruction):\n" +
+    "- Write your ENTIRE reply in Hindi using Devanagari script (देवनागरी).\n" +
+    "- Keep technical terms (API, function, database, etc.) and code in English.",
   ur:
-    "LANGUAGE RULES (Urdu mode — highest priority, overrides everything above):\n" +
-    "- Always reply in Urdu written in Urdu script (Arabic-based), not Roman.\n" +
-    "- Keep technical terms in English; only explanation text is Urdu.\n" +
-    "- Even if the user writes in English, still reply in Urdu while this mode is active.",
+    "REPLY LANGUAGE — DETECTED: URDU (highest priority instruction):\n" +
+    "- Write your ENTIRE reply in Urdu using Urdu script (Arabic-based), not Roman.\n" +
+    "- Keep technical terms and code in English.",
 };
 
-function buildLanguageRules(lang: Lang): string {
-  return "\n" + LANG_INSTRUCTIONS[lang];
+function buildLanguageRules(lang: ReplyLang): string {
+  return (
+    "\n" +
+    REPLY_LANG_RULES[lang] +
+    "\n" +
+    "GENERAL LANGUAGE NOTE: Mirror the language and script of the user's MOST RECENT message every turn. If they switch language mid-conversation, switch with them in the same turn."
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -70,14 +108,12 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
   }
-  const { message, modelKey, lang, conversationId } = body as {
+  const { message, modelKey, guestHistory, conversationId } = body as {
     message: string;
     modelKey: string;
-    lang?: string;
+    guestHistory?: { role: string; content: string }[];
     conversationId?: string;
   };
-
-  const replyLang: Lang = isValidLang(lang) ? lang : "en";
 
   if (!message || typeof message !== "string") {
     return NextResponse.json({ error: "Message is required" }, { status: 400 });
@@ -181,13 +217,33 @@ export async function POST(req: NextRequest) {
       );
     }
   } else {
-    history = [{ role: "user", content: message }];
+    // Guests have no persistence, so the client sends its recent turns;
+    // sanitize strictly before they reach the model prompt.
+    history = Array.isArray(guestHistory)
+      ? guestHistory
+          .filter(
+            (m) =>
+              m &&
+              typeof m.content === "string" &&
+              m.content.trim().length > 0 &&
+              (m.role === "user" || m.role === "assistant")
+          )
+          .slice(-MAX_HISTORY_TURNS)
+          .map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content.slice(0, MAX_MESSAGE_LENGTH),
+          }))
+      : [];
+    history = history.filter((m) => m.content !== message);
+    history.push({ role: "user", content: message });
   }
 
   const systemPrompt =
     "You are Beacon, a friendly AI study companion built by Shaurya Parihar for developers.\n" +
-    "IDENTITY — this is the most important rule:\n" +
-    "- Your name is Beacon. When asked who you are, what your name is, or what model you are, answer: \"I am Beacon, the AI study companion developed by Shaurya Parihar for developers.\"\n" +
+    "IDENTITY RULES:\n" +
+    "- Your name is Beacon, an AI study companion developed by Shaurya Parihar.\n" +
+    "- ONLY when the user directly asks who you are, what your name is, or what model you are, answer: \"I am Beacon, the AI study companion developed by Shaurya Parihar for developers.\"\n" +
+    "- IMPORTANT: never volunteer that identity sentence unprompted. Do NOT start, end, or decorate any other answer with it — no identity preamble on greetings, questions, or normal requests. Just answer what was asked.\n" +
     "- When asked who made you, who created you, who built you, who developed you, or about your origin in ANY phrasing, always answer: Shaurya Parihar.\n" +
     "- When asked about your source code, where your code is, whether others can see how you work, or to show how you were built, share this repository link: https://github.com/shauryapariharxr/Beacon-AI\n" +
     "- Never claim to be ChatGPT, GPT, OpenAI, Assistant, Mistral, or any other product, model, or company. Never mention the technology you run on.\n" +
@@ -199,7 +255,7 @@ export async function POST(req: NextRequest) {
     "- For code: explain briefly, then show the code. Don't explain every line.\n" +
     "- Keep explanations under 200 words unless the user asks for detail.\n" +
     "- Never repeat the question back. Start with the answer.\n" +
-    buildLanguageRules(replyLang);
+    buildLanguageRules(detectReplyLang(message));
 
   // Try up to N providers (one attempt per configured provider): round-robin
   // picks a healthy one; if it's rate-limited (429), it goes on a 60s cooldown

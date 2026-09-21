@@ -21,8 +21,8 @@ const FEATURES = [
     body: "Zap for quick facts, Sage for harder reasoning, Forge for code — switch mid-conversation depending on what the problem actually needs.",
   },
   {
-    title: "Answers in your language",
-    body: "Ask in English, Hinglish, Roman Urdu, or Urdu script — and Beacon replies in the same language, not just translates the menu.",
+    title: "Speaks your language",
+    body: "Type in English, Hinglish, Hindi, Roman Urdu, or Urdu script — Beacon replies in whatever language you're writing in, automatically. No toggle needed.",
   },
   {
     title: "Streamed, not delayed",
@@ -72,7 +72,7 @@ const FAQS = [
   },
   {
     q: "Which languages does Beacon support?",
-    a: "English, Hinglish, Roman Urdu, and Urdu script — for the interface and the replies. Type in Hinglish and Beacon answers in Hinglish too.",
+    a: "English, Hinglish, Hindi, Roman Urdu, and Urdu script. There's no language button — just type in whatever you're comfortable with and Beacon mirrors it, switching automatically if you switch mid-chat.",
   },
   {
     q: "Can Beacon help with code, not just homework?",

@@ -4,9 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { ArrowUp, LogOut, ChevronDown, Menu } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
 import { ModelSelector } from "./ModelSelector";
-import { LanguageToggle } from "./LanguageToggle";
 import { MODELS, ModelKey } from "@/lib/models";
-import { Lang, t } from "@/lib/i18n";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -35,7 +33,6 @@ export function ChatWindow({
   const [input, setInput] = useState("");
   // Everyone starts on Flash; guests are locked to it (server-enforced too).
   const [model, setModel] = useState<ModelKey>("flash");
-  const [lang, setLang] = useState<Lang>("en");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [convoId, setConvoId] = useState<string | undefined>(conversationId);
@@ -158,7 +155,19 @@ export function ChatWindow({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, modelKey: model, lang, conversationId: convoId }),
+        body: JSON.stringify({
+          message: text,
+          modelKey: model,
+          conversationId: convoId,
+          // Guests have no server-side history, so carry the last few turns
+          // from local state — this is what gives the AI its memory.
+          guestHistory: isAuthed
+            ? undefined
+            : messages
+                .filter((m) => m.content)
+                .slice(-10)
+                .map((m) => ({ role: m.role, content: m.content })),
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -246,7 +255,6 @@ export function ChatWindow({
           <ModelSelector value={model} onChange={setModel} isAuthed={isAuthed} />
         </div>
         <div className="flex items-center gap-2">
-          <LanguageToggle value={lang} onChange={setLang} />
           {isAuthed && userEmail && (
             <div className="relative">
               <button
@@ -270,7 +278,7 @@ export function ChatWindow({
                       className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm text-ink hover:bg-white/[0.06] transition-colors"
                     >
                       <LogOut className="w-4 h-4" />
-                      {t(lang, "logout")}
+                      Log out
                     </button>
                   </div>
                 </>
@@ -301,10 +309,10 @@ export function ChatWindow({
             ) : (
               <>
                 <div className="font-serif font-bold text-3xl md:text-4xl text-ink max-w-lg">
-                  {t(lang, "tagline")}
+                  Your free AI study buddy
                 </div>
                 <div className="glass rounded-xl px-4 py-3 text-sm text-muted max-w-sm mt-1">
-                  {t(lang, "guestNotice")}
+                  Chatting as guest. Sign up to save your conversations.
                 </div>
               </>
             )}
@@ -385,14 +393,14 @@ export function ChatWindow({
                   send();
                 }
               }}
-              placeholder={t(lang, "placeholder")}
+              placeholder="Ask anything..."
               rows={1}
               className="flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] focus:outline-none placeholder:text-muted"
             />
             <button
               onClick={send}
               disabled={sending || !input.trim()}
-              aria-label={t(lang, "send")}
+              aria-label="Send"
               className="w-10 h-10 rounded-xl bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 transition-all shrink-0"
             >
               <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
