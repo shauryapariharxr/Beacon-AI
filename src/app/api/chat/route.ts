@@ -13,6 +13,15 @@ import {
   providerCount,
 } from "@/lib/providers";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
+import {
+  retrieveDocumentContext,
+  retrieveMemoryContext,
+  buildDocumentContextBlock,
+  buildMemoryContextBlock,
+  rememberExchange,
+  type DocMatch,
+  type MemoryMatch,
+} from "@/lib/rag";
 
 // Abuse guard: signed-in users get a generous budget, guests a tighter one
 // (they're anonymous, so cheaper to attack from).
@@ -108,11 +117,12 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
   }
-  const { message, modelKey, guestHistory, conversationId } = body as {
+  const { message, modelKey, guestHistory, conversationId, documentIds } = body as {
     message: string;
     modelKey: string;
     guestHistory?: { role: string; content: string }[];
     conversationId?: string;
+    documentIds?: string[];
   };
 
   if (!message || typeof message !== "string") {
@@ -238,6 +248,23 @@ export async function POST(req: NextRequest) {
     history.push({ role: "user", content: message });
   }
 
+  // ---------- RAG retrieval (signed-in users only; best-effort) ----------
+  // Documents the user pinned to this chat (or all their docs if none are
+  // pinned), plus relevant notes from previous conversations. Failures
+  // degrade to plain chat — never block a reply on retrieval.
+  let docMatches: DocMatch[] | null = null;
+  let memoryMatches: MemoryMatch[] | null = null;
+  if (userId) {
+    const pinnedIds =
+      Array.isArray(documentIds) && documentIds.length
+        ? documentIds.filter((id) => typeof id === "string").slice(0, 10)
+        : undefined;
+    [docMatches, memoryMatches] = await Promise.all([
+      retrieveDocumentContext(userId, message, pinnedIds),
+      retrieveMemoryContext(userId, message, convoId),
+    ]);
+  }
+
   const systemPrompt =
     "You are Beacon, a friendly AI study companion built by Shaurya Parihar for developers.\n" +
     "IDENTITY RULES:\n" +
@@ -255,7 +282,9 @@ export async function POST(req: NextRequest) {
     "- For code: explain briefly, then show the code. Don't explain every line.\n" +
     "- Keep explanations under 200 words unless the user asks for detail.\n" +
     "- Never repeat the question back. Start with the answer.\n" +
-    buildLanguageRules(detectReplyLang(message));
+    buildLanguageRules(detectReplyLang(message)) +
+    (docMatches ? buildDocumentContextBlock(docMatches) : "") +
+    (memoryMatches ? buildMemoryContextBlock(memoryMatches) : "");
 
   // Try up to N providers (one attempt per configured provider): round-robin
   // picks a healthy one; if it's rate-limited (429), it goes on a 60s cooldown
@@ -382,6 +411,14 @@ export async function POST(req: NextRequest) {
             // it IS worth logging so you notice conversations aren't saving.
             console.error("Failed to save assistant reply to DB:", err);
           }
+          // Long-term memory: summarize this exchange into a durable note
+          // future conversations can retrieve. Strictly after the reply is
+          // saved; failures are logged and swallowed — never user-facing.
+          try {
+            await rememberExchange(userId, convoId, message, fullText);
+          } catch (err) {
+            console.error("Memory write failed:", err);
+          }
         }
       } catch (err: any) {
         // Anything that throws inside this block (a network hiccup mid-stream,
@@ -398,6 +435,11 @@ export async function POST(req: NextRequest) {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "X-Conversation-Id": convoId ?? "",
+      // Compact summary of what was retrieved, so the UI can show which
+      // documents grounded this reply without parsing the stream.
+      "X-Rag-Docs": docMatches
+        ? JSON.stringify([...new Set(docMatches.map((m) => m.filename))]).slice(0, 400)
+        : "",
     },
   });
 }

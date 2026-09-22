@@ -1,4 +1,17 @@
-import { pgTable, text, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, bigint, integer, customType } from "drizzle-orm/pg-core";
+
+// pgvector column type. Drizzle 0.33 predates the built-in `vector` helper
+// in some setups, so define it explicitly — SQL side it's just `vector(1024)`.
+// toDriver serializes JS arrays into pgvector's '[v1,v2,...]' text format;
+// without it the driver sends a bracket-less string pgvector rejects.
+const vector = customType<{ data: number[]; driverData: string }>({
+  dataType() {
+    return "vector(1024)";
+  },
+  toDriver(value: number[]) {
+    return `[${value.join(",")}]`;
+  },
+});
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -29,5 +42,42 @@ export const messages = pgTable("messages", {
   conversationId: text("conversation_id").notNull(),
   role: text("role").notNull(),
   content: text("content").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
+// ---------- RAG ----------
+
+export const documents = pgTable("documents", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type"),
+  sizeBytes: bigint("size_bytes", { mode: "number" }).notNull().default(0),
+  chunkCount: integer("chunk_count").notNull().default(0),
+  // processing | ready | error
+  status: text("status").notNull().default("ready"),
+  error: text("error"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
+export const documentChunks = pgTable("document_chunks", {
+  id: text("id").primaryKey(),
+  documentId: text("document_id").notNull(),
+  userId: text("user_id").notNull(),
+  chunkIndex: integer("chunk_index").notNull(),
+  content: text("content").notNull(),
+  embedding: vector("embedding").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
+export const memories = pgTable("memories", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  // Conversation the exchange came from (unique: one memory per turn-set).
+  conversationId: text("conversation_id"),
+  sourceUser: text("source_user").notNull(),
+  sourceAssistant: text("source_assistant").notNull(),
+  summary: text("summary").notNull(),
+  embedding: vector("embedding").notNull(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });

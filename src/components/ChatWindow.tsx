@@ -1,12 +1,23 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { ArrowUp, LogOut, ChevronDown, Menu } from "lucide-react";
+import {
+  ArrowUp,
+  LogOut,
+  ChevronDown,
+  Menu,
+  Paperclip,
+  FileText,
+  Trash2,
+  X,
+  Loader2,
+} from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
 import { ModelSelector } from "./ModelSelector";
 import { MODELS, ModelKey } from "@/lib/models";
 
 type Msg = { role: "user" | "assistant"; content: string };
+type DocInfo = { id: string; filename: string; chunkCount: number; status: string; error?: string | null };
 
 export function ChatWindow({
   isAuthed,
@@ -37,6 +48,18 @@ export function ChatWindow({
   const [error, setError] = useState<string | null>(null);
   const [convoId, setConvoId] = useState<string | undefined>(conversationId);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  // RAG: documents list, which docs are pinned to this chat, and upload state.
+  const [docs, setDocs] = useState<DocInfo[]>([]);
+  const [docsOpen, setDocsOpen] = useState(false);
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [docsError, setDocsError] = useState<string | null>(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteTitle, setPasteTitle] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  // Filenames the server actually retrieved for the latest reply (X-Rag-Docs).
+  const [ragNote, setRagNote] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -132,9 +155,90 @@ export function ChatWindow({
     }
   }, []);
 
+  // ---------- RAG: documents ----------
+  const loadDocs = useCallback(async () => {
+    try {
+      const res = await fetch("/api/documents");
+      if (!res.ok) return;
+      const data = await res.json();
+      setDocs(data.documents || []);
+    } catch {
+      // Non-fatal: documents panel just stays empty.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAuthed) loadDocs();
+  }, [isAuthed, loadDocs]);
+
+  async function handleUpload(file: File) {
+    setUploading(true);
+    setDocsError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/documents", { method: "POST", body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDocsError(data.error || "Upload failed.");
+        return;
+      }
+      if (data.document?.id) {
+        // Pin what was just uploaded so the next question targets it.
+        setPinnedIds((p) => (p.includes(data.document.id) ? p : [...p, data.document.id]));
+      }
+      loadDocs();
+    } catch {
+      setDocsError("Upload failed — check your connection.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handlePasteSave() {
+    if (!pasteTitle.trim() || !pasteText.trim()) return;
+    setUploading(true);
+    setDocsError(null);
+    try {
+      const res = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: pasteTitle.trim(), text: pasteText }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDocsError(data.error || "Save failed.");
+        return;
+      }
+      if (data.document?.id) {
+        setPinnedIds((p) => (p.includes(data.document.id) ? p : [...p, data.document.id]));
+      }
+      setPasteTitle("");
+      setPasteText("");
+      setPasteOpen(false);
+      loadDocs();
+    } catch {
+      setDocsError("Save failed — check your connection.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function removeDoc(id: string) {
+    setDocs((d) => d.filter((x) => x.id !== id));
+    setPinnedIds((p) => p.filter((x) => x !== id));
+    try {
+      await fetch(`/api/documents?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    } catch {
+      // List already updated locally; refetch on next open reconciles.
+    }
+    loadDocs();
+  }
+
   async function send() {
     const text = input.trim();
     if (!text || sending) return;
+    setRagNote(null);
     // Belt-and-braces client guard; the API enforces this for real.
     if (!isAuthed && model !== "flash") {
       setError("Sign in to use models other than Flash.");
@@ -159,6 +263,8 @@ export function ChatWindow({
           message: text,
           modelKey: model,
           conversationId: convoId,
+          // Pinned documents scope retrieval to those files; empty = all docs.
+          documentIds: isAuthed && pinnedIds.length ? pinnedIds : undefined,
           // Guests have no server-side history, so carry the last few turns
           // from local state — this is what gives the AI its memory.
           guestHistory: isAuthed
@@ -173,6 +279,17 @@ export function ChatWindow({
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Something went wrong");
+      }
+
+      // Which documents grounded this reply (server-decided, post-retrieval).
+      const ragHeader = res.headers.get("X-Rag-Docs");
+      if (ragHeader) {
+        try {
+          const names: string[] = JSON.parse(ragHeader);
+          if (names.length) setRagNote(`Answered using ${names.join(", ")}`);
+        } catch {
+          // header is cosmetic — ignore malformed values
+        }
       }
 
       const newConvoId = res.headers.get("X-Conversation-Id");
@@ -239,8 +356,24 @@ export function ChatWindow({
     (userName && userName.trim()) ||
     (userEmail ? userEmail.split("@")[0] : "");
 
+  // Hidden file input lives at the component root level.
+  const fileInput = (
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept=".pdf,.txt,.md,.csv,.json"
+      className="hidden"
+      onChange={(e) => {
+        const f = e.target.files?.[0];
+        if (f) handleUpload(f);
+        e.target.value = "";
+      }}
+    />
+  );
+
   return (
     <div className="flex flex-col h-full">
+      {fileInput}
       <div className="shrink-0 flex justify-between items-center px-4 py-3 gap-2 border-b border-white/[0.06]">
         <div className="flex items-center gap-2 min-w-0">
           {onOpenSidebar && (
@@ -370,6 +503,122 @@ export function ChatWindow({
 
       <div className="shrink-0 p-3 md:p-4 pb-safe">
         <div className="max-w-4xl mx-auto w-full">
+          {/* Documents drawer — uploads, paste-notes, pin-to-chat */}
+          {isAuthed && docsOpen && (
+            <div className="glass-strong rounded-2xl p-3 mb-2 animate-pop-in">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-medium text-ink">Knowledge documents</div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="text-xs bg-white/[0.08] hover:bg-white/[0.14] rounded-lg px-2.5 py-1.5 text-ink transition-colors disabled:opacity-50"
+                  >
+                    Upload file
+                  </button>
+                  <button
+                    onClick={() => setPasteOpen(true)}
+                    disabled={uploading}
+                    className="text-xs bg-white/[0.08] hover:bg-white/[0.14] rounded-lg px-2.5 py-1.5 text-ink transition-colors disabled:opacity-50"
+                  >
+                    Paste notes
+                  </button>
+                  <button
+                    onClick={() => setDocsOpen(false)}
+                    className="p-1.5 text-muted hover:text-ink rounded-lg hover:bg-white/[0.06] transition-colors"
+                    aria-label="Close documents"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              {uploading && (
+                <div className="flex items-center gap-2 text-xs text-muted py-1.5">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Reading and indexing…
+                </div>
+              )}
+              {docsError && (
+                <div className="text-xs text-red-300 bg-red-950/40 border border-red-900/60 rounded-lg px-2.5 py-1.5 mb-2">
+                  {docsError}
+                </div>
+              )}
+              {pasteOpen && (
+                <div className="mb-2 space-y-2">
+                  <input
+                    value={pasteTitle}
+                    onChange={(e) => setPasteTitle(e.target.value)}
+                    placeholder="Title (e.g. Chapter 4 — Recursion)"
+                    className="w-full bg-white/[0.06] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-lamp/60 placeholder:text-muted"
+                  />
+                  <textarea
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    placeholder="Paste your notes here…"
+                    rows={5}
+                    className="w-full bg-white/[0.06] rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-lamp/60 placeholder:text-muted"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setPasteOpen(false)}
+                      className="text-xs px-3 py-1.5 rounded-lg text-muted hover:text-ink hover:bg-white/[0.06] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handlePasteSave}
+                      disabled={uploading || !pasteTitle.trim() || !pasteText.trim()}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] disabled:opacity-40"
+                    >
+                      Save notes
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="space-y-1 max-h-56 overflow-y-auto">
+                {docs.length === 0 && !uploading && (
+                  <p className="text-xs text-muted px-1 py-2">
+                    Upload a PDF or paste notes — Beacon will answer questions using them
+                    (with citations) and remember relevant points across chats.
+                  </p>
+                )}
+                {docs.map((d) => (
+                  <div
+                    key={d.id}
+                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-white/[0.04] text-sm"
+                  >
+                    <FileText className="w-3.5 h-3.5 shrink-0 text-lamp" />
+                    <span className="flex-1 truncate" title={d.filename}>{d.filename}</span>
+                    <span className="text-[11px] text-muted shrink-0">
+                      {d.status === "error" ? "failed" : `${d.chunkCount} parts`}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setPinnedIds((p) =>
+                          p.includes(d.id) ? p.filter((x) => x !== d.id) : [...p, d.id]
+                        )
+                      }
+                      className={`text-[11px] px-2 py-0.5 rounded-full transition-colors shrink-0 ${
+                        pinnedIds.includes(d.id)
+                          ? "bg-lamp/90 text-[#1a1204] font-semibold"
+                          : "bg-white/[0.08] text-muted hover:text-ink"
+                      }`}
+                      title={pinnedIds.includes(d.id) ? "Pinned to this chat" : "Pin to this chat"}
+                    >
+                      {pinnedIds.includes(d.id) ? "Pinned" : "Pin"}
+                    </button>
+                    <button
+                      onClick={() => removeDoc(d.id)}
+                      className="p-1 -m-0.5 text-muted hover:text-red-400 transition-colors shrink-0"
+                      aria-label="Delete document"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="glass-strong rounded-2xl p-2 flex gap-2 items-end">
             <textarea
               ref={textareaRef}
@@ -397,17 +646,42 @@ export function ChatWindow({
               rows={1}
               className="flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] focus:outline-none placeholder:text-muted"
             />
+            {isAuthed && (
+              <button
+                onClick={() => setDocsOpen((v) => !v)}
+                disabled={uploading}
+                aria-label="Attach documents"
+                title="Documents — upload PDFs or notes Beacon answers from"
+                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shrink-0 relative ${
+                  docsOpen || pinnedIds.length
+                    ? "bg-lamp/20 text-lamp"
+                    : "text-muted hover:text-ink hover:bg-white/[0.06]"
+                }`}
+              >
+                <Paperclip className="w-4.5 h-4.5" />
+                {pinnedIds.length > 0 && (
+                  <span className="absolute translate-x-4 -translate-y-3 w-4 h-4 rounded-full bg-lamp text-[#1a1204] text-[10px] font-bold flex items-center justify-center">
+                    {pinnedIds.length}
+                  </span>
+                )}
+              </button>
+            )}
             <button
               onClick={send}
               disabled={sending || !input.trim()}
               aria-label="Send"
-              className="w-10 h-10 rounded-xl bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 transition-all shrink-0"
+              className="w-10 h-10 rounded-xl bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 transition-all shrink-0 relative"
             >
               <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
             </button>
           </div>
-          <div className="text-xs text-muted mt-2 px-1">
-            Using <span className="text-lamp">{MODELS[model].label}</span>
+          <div className="text-xs text-muted mt-2 px-1 flex items-center gap-2 flex-wrap">
+            <span>
+              Using <span className="text-lamp">{MODELS[model].label}</span>
+            </span>
+            {ragNote && (
+              <span className="text-lamp/90">· {ragNote}</span>
+            )}
           </div>
         </div>
       </div>
