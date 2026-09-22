@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("Firebase auth exchange failed:", err);
     return NextResponse.json(
-      { error: "Sign-in couldn't complete — " + (err?.message || "server error") },
+      { error: "Sign-in couldn't complete — please try again." },
       { status: 500 }
     );
   }

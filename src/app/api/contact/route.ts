@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("Contact route failed:", err);
     return NextResponse.json(
-      { error: "Message couldn't be sent — " + (err?.message || "server error") },
+      { error: "Message couldn't be sent — please try again later." },
       { status: 500 }
     );
   }

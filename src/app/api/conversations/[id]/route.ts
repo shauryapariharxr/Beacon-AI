@@ -28,7 +28,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   } catch (err: any) {
     console.error("Conversation load failed:", err);
     return NextResponse.json(
-      { error: "Couldn't load the conversation. " + (err?.message || "database error") },
+      { error: "Couldn't load the conversation — try again in a moment." },
       { status: 500 }
     );
   }
@@ -59,7 +59,7 @@ export async function DELETE(
   } catch (err: any) {
     console.error("Conversation delete failed:", err);
     return NextResponse.json(
-      { error: "Couldn't delete the conversation. " + (err?.message || "database error") },
+      { error: "Couldn't delete the conversation — try again in a moment." },
       { status: 500 }
     );
   }

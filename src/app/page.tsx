@@ -3,8 +3,9 @@
 import { useState, Fragment, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ChevronDown, Check, Minus, Maximize2, Minimize2, Code2 } from "lucide-react";
+import { ChevronDown, Check, Minus, Maximize2, Minimize2 } from "lucide-react";
 import { ChatWindow } from "@/components/ChatWindow";
+import { Navbar } from "@/components/Navbar";
 import { MODELS } from "@/lib/models";
 
 const FEATURES = [
@@ -196,37 +197,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen flex flex-col">
       {/* Navbar */}
-      <header className="sticky top-0 z-50 flex justify-center pt-3 px-3">
-        <div className="glass-nav w-full max-w-5xl rounded-[50px] pl-6 pr-4 py-2.5 flex items-center justify-between">
-          <Link href="/">
-            <Image src="/logo.svg" alt="Beacon" width={30} height={30} className="ml-1" priority />
-          </Link>
-          <nav className="hidden md:flex items-center gap-6 text-sm text-muted">
-            <a href="#demo" className="hover:text-ink transition-colors">Try it</a>
-            <a href="#models" className="hover:text-ink transition-colors">Models</a>
-            <a href="#how-it-works" className="hover:text-ink transition-colors">How it works</a>
-            <Link href="/contact" className="hover:text-ink transition-colors">Contact</Link>
-          </nav>
-          <div className="flex items-center gap-4">
-            <a
-              href="https://github.com/shauryapariharxr/Beacon-AI"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Source code"
-              title="Source code"
-              className="flex items-center justify-center text-muted hover:text-ink transition-colors"
-            >
-              <Code2 className="w-[18px] h-[18px]" />
-            </a>
-            <Link
-              href="/login"
-              className="text-sm bg-gradient-to-r from-lamp to-orange-500 text-[#1a1204] font-semibold px-3.5 py-1.5 rounded-full hover:brightness-105 transition-all"
-            >
-              Log in
-            </Link>
-          </div>
-        </div>
-      </header>
+      <Navbar />
 
       <main className="flex-1">
         {/* Hero */}

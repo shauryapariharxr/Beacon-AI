@@ -200,7 +200,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("Document upload failed:", err);
     return NextResponse.json(
-      { error: "Upload failed. Details: " + (err?.message || String(err)) },
+      { error: "Upload failed — please try again." },
       { status: 500 }
     );
   }

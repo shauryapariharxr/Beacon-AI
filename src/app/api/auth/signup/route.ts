@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("Signup failed:", err);
     return NextResponse.json(
-      { error: "Signup couldn't complete — " + (err?.message || "server error") },
+      { error: "Signup couldn't complete — please try again." },
       { status: 500 }
     );
   }

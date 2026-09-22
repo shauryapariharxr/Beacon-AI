@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     } catch (err: any) {
       console.error("Login DB read failed:", err);
       return NextResponse.json(
-        { error: "Couldn't reach the database. " + (err?.message || String(err)) },
+        { error: "Couldn't sign you in right now — the database is unreachable. Try again shortly." },
         { status: 500 }
       );
     }
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("Login failed:", err);
     return NextResponse.json(
-      { error: "Login couldn't complete — " + (err?.message || "server error") },
+      { error: "Login couldn't complete — please try again." },
       { status: 500 }
     );
   }

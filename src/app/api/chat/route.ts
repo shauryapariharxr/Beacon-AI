@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { getSessionUserId } from "@/lib/auth";
 import { isValidModel } from "@/lib/models";
 import {
@@ -148,9 +148,11 @@ export async function POST(req: NextRequest) {
     );
   }
   if (!hasProviders()) {
+    // Deliberately vague: the response is client-facing and must not name
+    // server environment variables.
     return NextResponse.json(
-      { error: "Server is missing GROQ_API_KEY. Add it to .env.local." },
-      { status: 500 }
+      { error: "The chat service isn't configured on this server yet." },
+      { status: 503 }
     );
   }
 
@@ -174,7 +176,20 @@ export async function POST(req: NextRequest) {
   // Now it surfaces as a clear, readable error instead.
   if (userId) {
     try {
-      if (!convoId) {
+      if (convoId) {
+        // SECURITY: the conversation must belong to the caller. Without this
+        // check any signed-in user could pass another user's conversation id
+        // and both append messages into it and read its history via the
+        // model prompt (classic IDOR).
+        const owned = await db
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(and(eq(conversations.id, convoId), eq(conversations.userId, userId)))
+          .limit(1);
+        if (!owned.length) {
+          return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+        }
+      } else {
         convoId = nanoid();
         await db.insert(conversations).values({
           id: convoId,
@@ -193,12 +208,9 @@ export async function POST(req: NextRequest) {
       });
     } catch (err: any) {
       console.error("Chat DB write failed:", err);
+      // Generic client message — internal error details stay in the server log.
       return NextResponse.json(
-        {
-          error:
-            "Couldn't save your message to the database. This usually means your database connection is down or paused (check your Supabase project isn't sleeping, and that DATABASE_URL is still correct). Details: " +
-            (err?.message || String(err)),
-        },
+        { error: "Couldn't save your message. The database may be unreachable — try again in a moment." },
         { status: 500 }
       );
     }
@@ -218,11 +230,7 @@ export async function POST(req: NextRequest) {
     } catch (err: any) {
       console.error("Chat DB read failed:", err);
       return NextResponse.json(
-        {
-          error:
-            "Couldn't load conversation history from the database. Details: " +
-            (err?.message || String(err)),
-        },
+        { error: "Couldn't load your conversation history — try again in a moment." },
         { status: 500 }
       );
     }
@@ -344,18 +352,19 @@ export async function POST(req: NextRequest) {
   }
 
   if (!upstream) {
+    // `lastErrorText` holds raw upstream responses — log it, never send it.
+    console.error("All providers exhausted. Last upstream error:", lastErrorText);
     return NextResponse.json(
-      {
-        error: `All AI providers failed or are rate-limited. ${lastErrorText}`.trim(),
-      },
+      { error: "All AI providers are busy or unreachable right now — please try again in a moment." },
       { status: 502 }
     );
   }
 
   if (!upstream.ok || !upstream.body) {
     const text = await upstream.text().catch(() => "");
+    console.error("Upstream model error:", upstream.status, text || upstream.statusText);
     return NextResponse.json(
-      { error: `Upstream model error: ${text || upstream.statusText}` },
+      { error: "The AI provider returned an error — please try again." },
       { status: 502 }
     );
   }
@@ -437,8 +446,12 @@ export async function POST(req: NextRequest) {
       "X-Conversation-Id": convoId ?? "",
       // Compact summary of what was retrieved, so the UI can show which
       // documents grounded this reply without parsing the stream.
+      // HTTP headers are ISO-8859-1: a filename with non-Latin1 characters
+      // (Devanagari, emoji…) would crash the response. Strip to a safe range.
       "X-Rag-Docs": docMatches
-        ? JSON.stringify([...new Set(docMatches.map((m) => m.filename))]).slice(0, 400)
+        ? JSON.stringify([...new Set(docMatches.map((m) => m.filename))])
+            .replace(/[^\x20-\x7E]/g, "?")
+            .slice(0, 400)
         : "",
     },
   });

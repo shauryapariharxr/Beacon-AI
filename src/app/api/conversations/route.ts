@@ -19,7 +19,7 @@ export async function GET() {
   } catch (err: any) {
     console.error("Conversation list failed:", err);
     return NextResponse.json(
-      { error: "Couldn't load conversations. " + (err?.message || "database error") },
+      { error: "Couldn't load conversations — try again in a moment." },
       { status: 500 }
     );
   }
