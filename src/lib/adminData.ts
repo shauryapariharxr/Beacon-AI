@@ -72,31 +72,58 @@ export async function getAdminStats(): Promise<AdminStats> {
   const since24h = now - DAY;
   const since7d = now - 7 * DAY;
 
-  // Every field is cast with ::int, so these arrive as real JS numbers.
+  // One pass per table instead of the eleven independent scalar subqueries
+  // this used to run: the old shape scanned `messages` five separate times
+  // (total questions, total replies, 24h, 7d, plus two distinct-user joins)
+  // on every admin page load, which grows linearly with the chat history —
+  // a second per load at a million messages. FILTER aggregates collapse
+  // those into a single scan each, and `created_at` is indexed so the 24h/7d
+  // windows are a range scan rather than a full-table scan.
+  //
+  // Every field is cast with ::int, and the JS numbers come back as numbers.
   const rows = await rawRows<AdminStats>(sql`
+    with u as (
+      select
+        count(*)::int as total,
+        count(*) filter (where created_at > ${since24h}::bigint)::int as d1,
+        count(*) filter (where created_at > ${since7d}::bigint)::int as d7
+      from users
+    ),
+    conv as (
+      select count(*)::int as total from conversations
+    ),
+    msg as (
+      select
+        count(*) filter (where role = 'user')::int as questions,
+        count(*) filter (where role = 'assistant')::int as replies,
+        count(*) filter (where role = 'user' and created_at > ${since24h}::bigint)::int as q1,
+        count(*) filter (where role = 'user' and created_at > ${since7d}::bigint)::int as q7
+      from messages
+    ),
+    act as (
+      select
+        count(distinct c.user_id) filter (where m.created_at > ${since24h}::bigint)::int as d1,
+        count(distinct c.user_id)::int as d7
+      from messages m
+      join conversations c on c.id = m.conversation_id
+      where m.created_at > ${since7d}::bigint
+    ),
+    doc as (select count(*)::int as total from documents),
+    mem as (select count(*)::int as total from memories)
     select
-      (select count(*)::int from users) as "totalUsers",
-      (select count(*)::int from users where created_at > ${since24h}::bigint) as "newUsers24h",
-      (select count(*)::int from users where created_at > ${since7d}::bigint) as "newUsers7d",
-      (
-        select count(distinct c.user_id)::int
-        from messages m
-        join conversations c on c.id = m.conversation_id
-        where m.created_at > ${since24h}::bigint
-      ) as "activeUsers24h",
-      (
-        select count(distinct c.user_id)::int
-        from messages m
-        join conversations c on c.id = m.conversation_id
-        where m.created_at > ${since7d}::bigint
-      ) as "activeUsers7d",
-      (select count(*)::int from conversations) as "totalConversations",
-      (select count(*)::int from messages where role = 'user') as "totalQuestions",
-      (select count(*)::int from messages where role = 'assistant') as "totalReplies",
-      (select count(*)::int from messages where role = 'user' and created_at > ${since24h}::bigint) as "questions24h",
-      (select count(*)::int from messages where role = 'user' and created_at > ${since7d}::bigint) as "questions7d",
-      (select count(*)::int from documents) as "totalDocuments",
-      (select count(*)::int from memories) as "totalMemories"
+      u.total as "totalUsers",
+      u.d1 as "newUsers24h",
+      u.d7 as "newUsers7d",
+      act.d1 as "activeUsers24h",
+      act.d7 as "activeUsers7d",
+      conv.total as "totalConversations",
+      msg.questions as "totalQuestions",
+      msg.replies as "totalReplies",
+      msg.q1 as "questions24h",
+      msg.q7 as "questions7d",
+      doc.total as "totalDocuments",
+      mem.total as "totalMemories"
+    from u, conv, msg, act, doc, mem
   `);
 
   return (
@@ -132,6 +159,9 @@ function toNumber(value: unknown): number {
  * email or display name so the operator can find one person among many.
  */
 export async function getAdminUsers(limit = 200, query = ""): Promise<AdminUserRow[]> {
+  // Hard ceiling: the query aggregates the whole message history before it can
+  // sort by last activity, so an unbounded page is a self-inflicted outage.
+  const pageSize = Math.min(Math.max(1, Math.floor(limit)), 500);
   const trimmed = query.trim().slice(0, 120);
   const filter = trimmed
     ? sql`where u.email ilike ${"%" + escapeLike(trimmed) + "%"}
@@ -164,7 +194,7 @@ export async function getAdminUsers(limit = 200, query = ""): Promise<AdminUserR
     ) act on act.user_id = u.id
     ${filter}
     order by act.last_message_at desc nulls last, u.created_at desc
-    limit ${limit}
+    limit ${pageSize}
   `);
 
   return rows.map((row) => ({

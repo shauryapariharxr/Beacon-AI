@@ -26,6 +26,19 @@ body {
   font-family: "Space Grotesk", system-ui, sans-serif;
 }
 
+/* Amber text caret in every input.
+
+   On a near-black UI the browser's default caret is a 1px light-grey line that
+   blinks twice a second and sits on top of the field — it reads as a rendering
+   glitch (and, in a form that has just errored, as a stray grey line rather
+   than something intentional). Making it the brand amber turns the only
+   deliberately blinking thing on the page into part of the design. */
+input,
+textarea,
+[contenteditable="true"] {
+  caret-color: #e8a33d;
+}
+
 /* iOS Safari zooms the page when an input's font-size is < 16px. Chat input
    and auth forms get 16px so the keyboard never triggers that jarring zoom. */
 @media (max-width: 640px) {
@@ -90,6 +103,18 @@ body {
   /* Soft amber glow for the one primary action per screen. */
   .glow-lamp {
     box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.4), 0 0 24px rgba(232, 163, 61, 0.25);
+  }
+
+  /* Secondary button / chip surface.
+
+     Deliberately NOT `.glass`: a backdrop-filter blur over a flat dark
+     background is visually indistinguishable from a flat tint, but it forces
+     the compositor to re-blur everything behind the element on every paint —
+     the single most expensive thing you can put on a small, often-hovered
+     button. On a phone it also costs GPU time on every scroll frame. */
+  .surface-2 {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.10);
   }
 }
 
@@ -223,24 +248,35 @@ body {
   }
 }
 
+/* These entrance animations use `backwards`, not `both`.
+
+   With `both` the browser keeps the animation's final keyframe applied for the
+   rest of the element's life. That leaves every animated card permanently in
+   an "animating" state, which keeps a composited layer alive — and a live
+   layer over a `backdrop-filter` surface (our .glass cards and buttons) is
+   what makes a 1px hairline border flicker or blink while the page scrolls or
+   repaints on Chrome/Windows. `backwards` gives the identical result visually
+   (the element's own style already *is* the final frame: opacity 1, no
+   transform) and lets the engine drop the animation once it finishes. */
+
 /* Chat message entrance — quick and subtle so streaming stays readable. */
 .animate-msg-in {
-  animation: msg-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: msg-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 /* Dropdown menus. */
 .animate-pop-in {
-  animation: pop-in 0.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: pop-in 0.15s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 /* Page/section entrance — pair with inline animation-delay for stagger. */
 .animate-fade-up {
-  animation: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 /* Error/notice banners. */
 .animate-toast-in {
-  animation: toast-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: toast-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 /* Accessibility: honor users who opt out of motion. */

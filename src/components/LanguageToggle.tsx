@@ -12,7 +12,7 @@ export function LanguageToggle({ value, onChange }: { value: Lang; onChange: (v:
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="glass rounded-full pl-3 pr-2.5 py-1.5 text-sm text-ink flex items-center gap-1.5 hover:bg-white/[0.07] transition-colors"
+        className="surface-2 rounded-full pl-3 pr-2.5 py-1.5 text-sm text-ink flex items-center gap-1.5 hover:bg-white/[0.09] transition-colors"
       >
         <Globe className="w-3.5 h-3.5 text-muted" />
         {current?.label}

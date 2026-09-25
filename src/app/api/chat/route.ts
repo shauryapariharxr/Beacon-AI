@@ -2,14 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { getSessionUserId } from "@/lib/auth";
 import { isValidModel } from "@/lib/models";
+import {
+  buildSystemPrompt,
+  detectReplyLang,
+  languageNudge,
+  temperatureFor,
+} from "@/lib/answerPolicy";
 import {
   hasProviders,
   nextProviderAttempt,
   markProviderRateLimited,
   markProviderUnavailable,
+  msUntilNextAvailable,
   providerCount,
 } from "@/lib/providers";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
@@ -19,9 +26,17 @@ import {
   buildDocumentContextBlock,
   buildMemoryContextBlock,
   rememberExchange,
+  embedQuery,
   type DocMatch,
   type MemoryMatch,
 } from "@/lib/rag";
+
+// Streaming a reply holds the function open until the last token is written,
+// so the duration must be raised explicitly — a platform default of a few
+// seconds kills the function mid-answer. 60s is the ceiling on Vercel's Hobby
+// plan; raise it (up to 300s on Pro) if replies are ever cut off mid-stream.
+export const maxDuration = 60;
+export const runtime = "nodejs";
 
 // Abuse guard: signed-in users get a generous budget, guests a tighter one
 // (they're anonymous, so cheaper to attack from).
@@ -37,142 +52,26 @@ const MAX_HISTORY_TURNS = 40;
 // for a while so the same broken mapping isn't retried on every request.
 const HARD_FAIL_STATUSES = new Set([403, 404]);
 
-// ---------- Reply-language detection ----------
-// The model should mirror the language of the user's LATEST message — not the
-// conversation's dominant language (the classic bug: Hinglish history makes
-// every later English question get a Hindi answer). We detect cheaply on the
-// server and inject an explicit, unambiguous directive into the prompt.
+// Cap on a single upstream generation. A provider that accepts the connection
+// and then stalls would otherwise hold a serverless invocation (and its single
+// database connection) until the platform kills it.
+const UPSTREAM_TIMEOUT_MS = 90_000;
 
-type ReplyLang = "en" | "hinglish" | "hi" | "ur";
+// Rate-limit recovery. When every instance is cooling down, the answer is
+// worth a short wait (free-tier windows are seconds long) but not an unbounded
+// one — past this we fail fast and tell the user to retry, instead of pinning
+// a serverless invocation on a minute-long cooldown.
+const MAX_RATE_LIMIT_WAIT_MS = 8_000;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-function countCharsInRanges(s: string, ranges: [number, number][]): number {
-  let n = 0;
-  for (const ch of s) {
-    const c = ch.codePointAt(0)!;
-    if (ranges.some(([lo, hi]) => c >= lo && c <= hi)) n++;
-  }
-  return n;
-}
-
-// Roman-script Hindi/Urdu markers. Every entry is either not an English word
-// at all (nahi, batao, kaise, naam) or an unambiguous romanized function word
-// (ke, ka, ko, mein, hai) — so ONE whole-word hit is already strong evidence.
-// English look-alikes are deliberately absent, because they would flip real
-// English questions into Hinglish: to, me, na, par, ab, is, us, bas, mat, tab,
-// band, the, so, no. Short-but-unambiguous Hindi particles (ke/ka/ki/ko) are
-// what make questions like "Bharat ke pratham pradhan mantri ka naam" detect
-// correctly — they were missing before, so that message scored as English.
-const INDIC_ROMAN_RE = new RegExp(
-  "\\b(?:" +
-    [
-      // verbs / particles
-      "hai","hain","hoga","hogi","honge","hota","hoti","hote",
-      "nahi","nahin","nhi","kya","kyun","kyon","kyu","kaise","kaisa","kaisi",
-      "kaun","kahan","kab","kitna","kitne","kitni","kisne","kisko",
-      "karna","karo","karta","karti","karte","kiya","karne","kijiye","karke",
-      "batao","bata","bataiye","batana","samjhao","samjha","samjhaiye","matlab",
-      "jawab","sawal","puch","chahiye","chahta","chahti","sakta","sakte","sakti",
-      "raha","rahi","rahe","tha","thi","gaya","gayi","gaye","diya","liya",
-      "dena","deta","deti","lena","leta","leti",
-      // pronouns / possessives
-      "mera","meri","mere","apna","apni","apne","mujhe","tujhe","tumko","tum",
-      "aap","aapko","hum","humko","unko","inko","iska","uska","iski","uski",
-      // function words
-      "ke","ka","ki","ko","mein","aur","ek","bhi","yeh","woh","toh",
-      "jaisa","jaise","waisa","sabse","sirf","bahut","bohot","bohat",
-      // everyday vocabulary + names that only appear in romanized Hindi text
-      "bhai","yaar","thoda","acha","achha","accha","theek","thik",
-      "zyada","jyada","kuch","koi","abhi","aaj","kal","namaste","shukriya",
-      "dhanyavad","sab","dost","padh","likh","dekho","chalo","rehna","milta",
-      "milega","liye","saath","naam","bharat","hindustan","desh","sarkar",
-      "pratham","pradhan","mantri","wala","wali","wale",
-    ].join("|") +
-    ")\\b",
-  "gi"
-);
-
-function detectReplyLang(message: string): ReplyLang {
-  // Ignore code before scoring: pasted snippets are full of identifiers and
-  // English words that can look like romanized Hindi and would skew the
-  // result (a `dekhKaro` variable shouldn't make the reply Hinglish).
-  const text = message.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ");
-
-  const devanagari = countCharsInRanges(text, [[0x0900, 0x097f]]);
-  const arabicScript = countCharsInRanges(text, [
-    [0x0600, 0x06ff],
-    [0x0750, 0x077f],
-  ]);
-  const latin = (text.match(/[a-zA-Z]/g) || []).length;
-
-  // Script detection by proportion: a stray borrowed word ("What does कर्म
-  // mean?") must not flip the whole reply to that script.
-  if (devanagari > 0 && devanagari >= latin) return "hi";
-  if (arabicScript > 0 && arabicScript >= latin) return "ur";
-
-  const romanHits = (text.match(INDIC_ROMAN_RE) || []).length;
-  if (romanHits > 0) return "hinglish";
-
-  return "en";
-}
-
-const REPLY_LANG_RULES: Record<ReplyLang, string> = {
-  en:
-    "REPLY LANGUAGE — DETECTED: ENGLISH (highest-priority instruction):\n" +
-    "- The message is English (it may borrow a Hindi word or two, but it is an English question).\n" +
-    "- Write your ENTIRE reply in clear English.\n" +
-    "- Do NOT reply in Hindi, Devanagari, Hinglish, or Urdu in this turn — even if earlier messages in the conversation history are in those languages. Only the LATEST message decides the language; the history is irrelevant.\n" +
-    "- Keep technical terms in English (they already are).",
-  hinglish:
-    "REPLY LANGUAGE — DETECTED: HINGLISH (Hindi/Urdu typed with English letters; highest-priority instruction):\n" +
-    "- The user is writing Hindi/Urdu words in Roman (Latin) letters, not English. Read the message as Hindi, don't parse it as English words.\n" +
-    "- STEP 1 (internal, never shown to the user): silently translate their message into plain English so you are certain what is being asked. Romanized spelling is loose — 'pratham pradhan mantri' means the first Prime Minister, 'naam' means name, 'kitna/kitne' means how much/how many, 'kaise' means how.\n" +
-    "- STEP 2: answer that translated English question with correct, verified facts (see ACCURACY RULES — a romanized question must NOT get a worse answer than the same question typed in English).\n" +
-    "- STEP 3: write the final answer in Hinglish — Hindi in Roman letters, naturally mixed with English words, the way young Indians text (e.g. \"Bhai, ye simple hai — ...\").\n" +
-    "- ROMAN LETTERS ONLY. Do NOT output Devanagari (देवनागरी) or Urdu script anywhere in this reply — not even one word, not even for names or titles.\n" +
-    "- This holds even for a one-line factual answer: write it as a Hinglish sentence (\"Bharat ke pehle pradhan mantri Jawaharlal Nehru the.\"), not as bare English.\n" +
-    "- Keep technical terms and code in English.",
-  hi:
-    "REPLY LANGUAGE — DETECTED: HINDI (Devanagari) (highest-priority instruction):\n" +
-    "- Write your ENTIRE reply in Hindi using Devanagari script (देवनागरी).\n" +
-    "- Do NOT answer in English prose or Roman letters — keep technical terms (API, function, database, etc.) and code in English.\n" +
-    "- Answer the question itself accurately (see ACCURACY RULES); the script must never change the facts.",
-  ur:
-    "REPLY LANGUAGE — DETECTED: URDU (highest-priority instruction):\n" +
-    "- Write your ENTIRE reply in Urdu using Urdu script (Arabic-based), not Roman.\n" +
-    "- Keep technical terms and code in English.",
-};
-
-// Restated at the very END of the system prompt: the last instruction a model
-// reads is the one it follows most reliably, and script drift (a Hinglish
-// question answered in Devanagari) is exactly the failure this catches.
-const LANG_FINAL_CHECK: Record<ReplyLang, string> = {
-  en: "FINAL OUTPUT CHECK: the entire reply must be in English. If you drafted any Hindi, Devanagari, Hinglish, or Urdu, rewrite it in English before sending.",
-  hinglish:
-    "FINAL OUTPUT CHECK: the entire reply must be in Hinglish using ROMAN LETTERS ONLY. Scan your answer — if any Devanagari (देवनागरी) or Urdu characters appear, rewrite that part in Roman letters before sending.",
-  hi: "FINAL OUTPUT CHECK: the entire reply must be in Hindi, Devanagari script.",
-  ur: "FINAL OUTPUT CHECK: the entire reply must be in Urdu, Urdu (Arabic) script.",
-};
-
-// Answer-quality rules, injected for every language. The romanized-Hindi bug
-// in the field was a wrong FACT (a hallucinated name), not just a wrong
-// script, so accuracy gets its own explicit block — and the model is told
-// outright that the phrasing of the question must not weaken the answer.
-const ACCURACY_RULES =
-  "ACCURACY RULES (applies to every answer, in every language and script):\n" +
-  "- Facts, names, dates, places, numbers, and titles MUST be correct. Never invent or guess a name to fill a gap — a confidently wrong fact is the worst possible failure.\n" +
-  "- For a well-known factual question, state the single widely accepted answer (for example: India's first Prime Minister was Jawaharlal Nehru; the first person to walk on the Moon was Neil Armstrong).\n" +
-  "- If you are genuinely unsure, or the answer is disputed, say so briefly instead of asserting something you can't back up.\n" +
-  "- A question written in romanized Hindi or another script is the SAME question as its English version: translate it internally and answer with the same care and the same facts.\n";
-
-function buildLanguageRules(lang: ReplyLang): string {
-  return (
-    REPLY_LANG_RULES[lang] +
-    "\nGENERAL LANGUAGE NOTE: Mirror the language and script of the user's MOST RECENT message every turn. If they switch language mid-conversation, switch with them in the same turn."
-  );
-}
-
-function buildLanguageTail(lang: ReplyLang): string {
-  return "\n" + LANG_FINAL_CHECK[lang];
+/** `Retry-After` in milliseconds, from either the delay-seconds or HTTP-date form. */
+function retryAfterMs(res: Response): number | null {
+  const raw = res.headers.get("retry-after");
+  if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 60_000);
+  const at = Date.parse(raw);
+  return Number.isFinite(at) ? Math.min(Math.max(at - Date.now(), 0), 60_000) : null;
 }
 
 export async function POST(req: NextRequest) {
@@ -235,6 +134,11 @@ export async function POST(req: NextRequest) {
     );
   }
   let convoId = conversationId;
+  // Tracked so a send that never gets a reply can be rolled back instead of
+  // leaving a question in the database that will never have an answer (see
+  // the provider-exhausted branch below).
+  let userMessageId: string | null = null;
+  let createdConversation = false;
 
   // If logged in, persist the conversation + user message.
   // Wrapped explicitly: a database failure here (e.g. a paused Supabase
@@ -258,6 +162,7 @@ export async function POST(req: NextRequest) {
         }
       } else {
         convoId = nanoid();
+        createdConversation = true;
         await db.insert(conversations).values({
           id: convoId,
           userId,
@@ -266,8 +171,9 @@ export async function POST(req: NextRequest) {
           createdAt: Date.now(),
         });
       }
+      userMessageId = nanoid();
       await db.insert(messages).values({
-        id: nanoid(),
+        id: userMessageId,
         conversationId: convoId,
         role: "user",
         content: message,
@@ -287,13 +193,18 @@ export async function POST(req: NextRequest) {
   let history: { role: string; content: string }[] = [];
   if (userId && convoId) {
     try {
+      // Newest-first with a LIMIT, then reversed: an index-backed page of the
+      // conversation instead of loading every message it ever held and
+      // slicing the last 40 in JS (which on a long conversation meant reading
+      // thousands of rows — and unordered, since the old query had no ORDER
+      // BY at all).
       const rows = await db
         .select()
         .from(messages)
-        .where(eq(messages.conversationId, convoId));
-      history = rows
-        .slice(-MAX_HISTORY_TURNS)
-        .map((r) => ({ role: r.role, content: r.content }));
+        .where(eq(messages.conversationId, convoId))
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(MAX_HISTORY_TURNS);
+      history = rows.reverse().map((r) => ({ role: r.role, content: r.content }));
     } catch (err: any) {
       console.error("Chat DB read failed:", err);
       return NextResponse.json(
@@ -323,10 +234,18 @@ export async function POST(req: NextRequest) {
     history.push({ role: "user", content: message });
   }
 
+  // Detected once, used for the prompt rules, the per-turn language directive,
+  // and the temperature choice.
+  const replyLang = detectReplyLang(message);
+
   // ---------- RAG retrieval (signed-in users only; best-effort) ----------
   // Documents the user pinned to this chat (or all their docs if none are
   // pinned), plus relevant notes from previous conversations. Failures
   // degrade to plain chat — never block a reply on retrieval.
+  //
+  // The query is embedded ONCE and shared by both retrievers: embedding the
+  // same text twice (as this used to) doubled embedding spend and added a
+  // round-trip of latency to every single reply.
   let docMatches: DocMatch[] | null = null;
   let memoryMatches: MemoryMatch[] | null = null;
   if (userId) {
@@ -334,51 +253,64 @@ export async function POST(req: NextRequest) {
       Array.isArray(documentIds) && documentIds.length
         ? documentIds.filter((id) => typeof id === "string").slice(0, 10)
         : undefined;
+    const queryVector = await embedQuery(message);
     [docMatches, memoryMatches] = await Promise.all([
-      retrieveDocumentContext(userId, message, pinnedIds),
-      retrieveMemoryContext(userId, message, convoId),
+      retrieveDocumentContext(userId, message, pinnedIds, queryVector),
+      retrieveMemoryContext(userId, message, convoId, queryVector),
     ]);
   }
 
-  // Detected once, used for the rules block, the final output check, and
-  // (below) the temperature choice.
-  const replyLang = detectReplyLang(message);
+  const systemPrompt = buildSystemPrompt({
+    lang: replyLang,
+    documentBlock: docMatches ? buildDocumentContextBlock(docMatches) : "",
+    memoryBlock: memoryMatches ? buildMemoryContextBlock(memoryMatches) : "",
+  });
 
-  const systemPrompt =
-    "You are Beacon, a friendly AI study companion built by Shaurya Parihar for developers.\n" +
-    // Language + accuracy sit ABOVE everything else: a wrong-language or
-    // wrong-fact reply is a failure regardless of how good the rest is.
-    buildLanguageRules(replyLang) +
-    "\n\nACCURACY RULES SUMMARY: be correct before being fluent. Never fabricate a name, date, or number.\n" +
-    "\nIDENTITY RULES:\n" +
-    "- Your name is Beacon, an AI study companion developed by Shaurya Parihar.\n" +
-    "- ONLY when the user directly asks who you are, what your name is, or what model you are, answer: \"I am Beacon, the AI study companion developed by Shaurya Parihar for developers.\"\n" +
-    "- IMPORTANT: never volunteer that identity sentence unprompted. Do NOT start, end, or decorate any other answer with it — no identity preamble on greetings, questions, or normal requests. Just answer what was asked.\n" +
-    "- When asked who made you, who created you, who built you, who developed you, or about your origin in ANY phrasing, always answer: Shaurya Parihar.\n" +
-    "- When asked about your source code, where your code is, whether others can see how you work, or to show how you were built, share this repository link: https://github.com/shauryapariharxr/Beacon-AI\n" +
-    "- Never claim to be ChatGPT, GPT, OpenAI, Assistant, Mistral, or any other product, model, or company. Never mention the technology you run on.\n" +
-    "- If the user insists you must be ChatGPT or another model, politely hold the identity: you are Beacon, built by Shaurya Parihar.\n" +
-    ACCURACY_RULES +
-    "ANSWERING RULES:\n" +
-    "- Give direct, accurate answers. Be brief.\n" +
-    "- Use code blocks with language tags (```java, ```python, etc.) for code.\n" +
-    "- Use markdown: **bold** for emphasis, headers for sections, bullet lists for steps.\n" +
-    "- For code: explain briefly, then show the code. Don't explain every line.\n" +
-    "- Keep explanations under 200 words unless the user asks for detail.\n" +
-    "- Never repeat the question back. Start with the answer.\n" +
-    (docMatches ? buildDocumentContextBlock(docMatches) : "") +
-    (memoryMatches ? buildMemoryContextBlock(memoryMatches) : "") +
-    // Last word wins: re-assert the reply script after all context blocks.
-    buildLanguageTail(replyLang);
+  // The system prompt is one instruction among many by the time a long history
+  // follows it, and models drift back to the previous turn's language. So the
+  // directive is repeated inside the very turn being answered — and, when the
+  // user has switched language mid-conversation, the nudge says so explicitly.
+  // Only the outbound copy carries it; the stored message stays untouched.
+  const lastUserIdx = history.map((m) => m.role).lastIndexOf("user");
+  const previousUserText =
+    lastUserIdx > 0
+      ? [...history.slice(0, lastUserIdx)].reverse().find((m) => m.role === "user")?.content
+      : undefined;
+  const outbound =
+    lastUserIdx === -1
+      ? history
+      : history.map((m, i) =>
+          i === lastUserIdx
+            ? {
+                role: m.role,
+                content:
+                  m.content +
+                  languageNudge(
+                    replyLang,
+                    previousUserText ? detectReplyLang(previousUserText) : null
+                  ),
+              }
+            : m
+        );
 
-  // Try up to N providers (one attempt per configured provider): round-robin
-  // picks a healthy one; if it's rate-limited (429), it goes on a 60s cooldown
-  // and the next attempt immediately uses the alternate provider instead.
+  // Rotate across every configured (provider, key) pair. Two things make this
+  // loop more than a plain failover:
+  //
+  //   1. A 429 benches the instance for the provider's own `Retry-After` (5s
+  //      by default) instead of a flat 60s — the old fixed bench meant two
+  //      free-tier 429s put the whole app out of service for a minute, and
+  //      every request in that window answered "all providers busy" while the
+  //      user's question was already stored, with no reply to go with it.
+  //   2. When *every* instance is cooling down, a short wait is spent before
+  //      retrying rather than giving up immediately: rate-limit windows are
+  //      seconds long, and waiting them out turns a lost answer into a slightly
+  //      slower one. If the remaining cooldown is longer than we can afford to
+  //      hold the request, the request fails fast with a clear message.
   let upstream: Response | null = null;
   let lastErrorText = "";
-  const attempts = Math.min(providerCount(), 3);
+  const maxAttempts = Math.max(3, providerCount() * 2);
 
-  for (let attempt = 0; attempt < attempts && !upstream; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts && !upstream; attempt++) {
     const target = nextProviderAttempt(modelKey);
     try {
       const res = await fetch(target.url, {
@@ -387,29 +319,38 @@ export async function POST(req: NextRequest) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${target.apiKey}`,
         },
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
         // Model ID is provider-specific — each provider maps the user's
         // chosen mode (flash/smart/coder) to its own model.
         body: JSON.stringify({
           model: target.model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...history,
-          ],
+          messages: [{ role: "system", content: systemPrompt }, ...outbound],
           stream: true,
           // Tuned for accuracy, not vibes: factual names/dates are far more
           // reliable with a low temperature, and both Groq and Mistral accept
-          // this on every model we route to.
-          temperature: 0.3,
+          // this on every model we route to. The non-English scripts measured
+          // the highest hallucination rate, so they run even cooler.
+          temperature: temperatureFor(replyLang),
         }),
       });
 
       if (res.status === 429) {
-        // Rate-limited: cool this provider down and try the next one.
-        markProviderRateLimited(target);
+        // Rate-limited: bench this instance for as long as the provider says
+        // (its own window) and try the next one.
+        markProviderRateLimited(target, retryAfterMs(res) ?? undefined);
         lastErrorText = await res.text().catch(() => "rate limited");
         console.warn(
           `${target.providerName} (…${target.apiKey.slice(-4)}) rate-limited — rotating to next provider`
         );
+
+        const waitMs = msUntilNextAvailable();
+        if (waitMs > 0 && waitMs <= MAX_RATE_LIMIT_WAIT_MS) {
+          // Nothing healthy: wait out the window rather than lose the answer.
+          await sleep(waitMs + 150);
+        } else if (waitMs > MAX_RATE_LIMIT_WAIT_MS) {
+          lastErrorText = `all providers rate-limited for ~${Math.round(waitMs / 1000)}s`;
+          break;
+        }
         continue;
       }
 
@@ -432,9 +373,33 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  /**
+   * Undo the half-written turn when no reply is going to exist.
+   *
+   * Without this, every failed send left a question in the database that could
+   * never have an answer: ~20% of the questions in production were in that
+   * state, the user's sidebar filled up with conversations holding a single
+   * orphan question, and a client retry would have stored the same message a
+   * second time.
+   */
+  const rollbackUnanswered = async () => {
+    if (!userId || !userMessageId) return;
+    try {
+      await db
+        .delete(messages)
+        .where(and(eq(messages.conversationId, convoId!), eq(messages.id, userMessageId)));
+      if (createdConversation && convoId) {
+        await db.delete(conversations).where(eq(conversations.id, convoId));
+      }
+    } catch (err) {
+      console.error("Failed to roll back an unanswered message:", err);
+    }
+  };
+
   if (!upstream) {
     // `lastErrorText` holds raw upstream responses — log it, never send it.
     console.error("All providers exhausted. Last upstream error:", lastErrorText);
+    await rollbackUnanswered();
     return NextResponse.json(
       { error: "All AI providers are busy or unreachable right now — please try again in a moment." },
       { status: 502 }
@@ -442,26 +407,65 @@ export async function POST(req: NextRequest) {
   }
 
   if (!upstream.ok || !upstream.body) {
+    // A revoked/expired key, a wrong model id on a new plan tier, a provider
+    // outage — anything that reaches the provider but produces no reply also
+    // has to leave the conversation untouched.
     const text = await upstream.text().catch(() => "");
     console.error("Upstream model error:", upstream.status, text || upstream.statusText);
+    await rollbackUnanswered();
     return NextResponse.json(
       { error: "The AI provider returned an error — please try again." },
       { status: 502 }
     );
   }
 
-  // Re-stream the SSE response to the client while also collecting the
-  // full text so we can save it to the DB once streaming finishes.
+  // Re-stream the SSE response to the client while also collecting the full
+  // text so we can save it to the DB once streaming finishes.
   let fullText = "";
+  let persisted = false;
+  let clientGone = false;
+  let upstreamReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
+
+  /**
+   * Save the assistant reply exactly once.
+   *
+   * Called on the normal path AND from `cancel()` (the client disconnected:
+   * tab closed, page reloaded, request aborted). Roughly one in five stored
+   * questions used to have no reply at all, because a disconnect threw inside
+   * the stream, the catch skipped the insert, and the question sat in the
+   * database unanswered forever. The user had already read the answer on
+   * screen; only the record was lost.
+   */
+  const persistReply = async () => {
+    if (persisted) return;
+    persisted = true;
+    if (!userId || !convoId || !fullText.trim()) return;
+    try {
+      await db.insert(messages).values({
+        id: nanoid(),
+        conversationId: convoId,
+        role: "assistant",
+        content: fullText,
+        createdAt: Date.now(),
+      });
+    } catch (err) {
+      // The reply already reached the user; a save failure is logged, not
+      // shown as a chat error — but it IS worth knowing conversations aren't
+      // saving.
+      console.error("Failed to save assistant reply to DB:", err);
+    }
+  };
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
         const reader = upstream.body!.getReader();
+        upstreamReader = reader;
         let buffer = "";
         while (true) {
+          if (clientGone) break;
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
@@ -484,39 +488,48 @@ export async function POST(req: NextRequest) {
             }
           }
         }
-        controller.close();
-
-        if (userId && convoId && fullText) {
-          try {
-            await db.insert(messages).values({
-              id: nanoid(),
-              conversationId: convoId,
-              role: "assistant",
-              content: fullText,
-              createdAt: Date.now(),
-            });
-          } catch (err) {
-            // The reply already streamed to the user successfully; a failure
-            // to save it afterward shouldn't be shown as a chat error, but
-            // it IS worth logging so you notice conversations aren't saving.
-            console.error("Failed to save assistant reply to DB:", err);
-          }
-          // Long-term memory: summarize this exchange into a durable note
-          // future conversations can retrieve. Strictly after the reply is
-          // saved; failures are logged and swallowed — never user-facing.
-          try {
-            await rememberExchange(userId, convoId, message, fullText);
-          } catch (err) {
-            console.error("Memory write failed:", err);
-          }
-        }
+        // Persist BEFORE closing: once the stream ends the function may be
+        // frozen, and an un-awaited insert after that point is simply lost.
+        await persistReply();
+        if (!clientGone) controller.close();
       } catch (err: any) {
         // Anything that throws inside this block (a network hiccup mid-stream,
-        // an unexpected error) now explicitly errors the stream instead of
-        // hanging forever. The client's reader.read() will reject, which
-        // surfaces as a visible error message in the chat UI.
+        // an unexpected error, or the client going away) explicitly errors the
+        // stream instead of hanging forever — the client's reader.read() then
+        // rejects and the chat UI shows a visible error.
+        await persistReply();
         console.error("Streaming failed:", err);
-        controller.error(err);
+        try {
+          if (!clientGone) controller.error(err);
+        } catch {
+          // already closed/cancelled
+        }
+      }
+
+      // Long-term memory: summarize this exchange into a durable note future
+      // conversations can retrieve. Strictly after the reply is saved;
+      // failures are logged and swallowed — never user-facing.
+      if (userId && convoId && fullText) {
+        try {
+          await rememberExchange(userId, convoId, message, fullText);
+        } catch (err) {
+          console.error("Memory write failed:", err);
+        }
+      }
+    },
+
+    /**
+     * The consumer went away (tab closed, reload, navigation, network drop).
+     * Save what was already generated and stop pulling tokens from the
+     * provider — the user isn't there to read them and they cost real money.
+     */
+    async cancel() {
+      clientGone = true;
+      await persistReply();
+      try {
+        await upstreamReader?.cancel();
+      } catch {
+        // upstream already finished
       }
     },
   });

@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { documents, documentChunks } from "@/lib/schema";
@@ -22,17 +22,29 @@ import {
 } from "@/lib/rag";
 import { hasEmbeddings, embed } from "@/lib/embeddings";
 
+// Text extraction + up to 400 embeddings (13 batched provider calls) takes
+// far longer than the platform's default function timeout, which used to turn
+// a large-but-valid upload into a hard failure right at the finish line.
+export const maxDuration = 60;
+
+export const runtime = "nodejs";
+
 const DOC_LIMIT = { limit: 10, windowMs: 60 * 60_000 };
 const MAX_TEXT_CHARS = 400_000;
 
 export async function GET() {
   const userId = await getSessionUserId();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Sorted by the database, not in JS: `documents_user_idx(user_id,
+  // created_at desc)` answers this with an index scan, and the sort happens
+  // where the data already is instead of shipping every row to the runtime
+  // just to reorder it.
   const rows = await db
     .select()
     .from(documents)
-    .where(eq(documents.userId, userId));
-  rows.sort((a, b) => b.createdAt - a.createdAt);
+    .where(eq(documents.userId, userId))
+    .orderBy(desc(documents.createdAt))
+    .limit(200);
   return NextResponse.json({
     documents: rows.map((d) => ({
       id: d.id,
@@ -174,18 +186,25 @@ export async function POST(req: NextRequest) {
       status: "ready",
       createdAt: now,
     });
-    // Batched multi-row insert — one round-trip instead of one per chunk.
-    await db.insert(documentChunks).values(
-      chunks.map((content, i) => ({
-        id: nanoid(),
-        documentId: docId,
-        userId,
-        chunkIndex: i,
-        content,
-        embedding: vectors[i],
-        createdAt: now,
-      }))
-    );
+    // Batched multi-row insert — one round-trip per batch instead of one per
+    // chunk. The batch is deliberately small: every row carries a 1024-float
+    // vector, so a single 400-row statement is a multi-megabyte query string
+    // (a 400-chunk PDF once hit the driver's statement limit and the whole
+    // upload failed at the very last step).
+    const CHUNK_INSERT_BATCH = 25;
+    for (let i = 0; i < chunks.length; i += CHUNK_INSERT_BATCH) {
+      await db.insert(documentChunks).values(
+        chunks.slice(i, i + CHUNK_INSERT_BATCH).map((content, j) => ({
+          id: nanoid(),
+          documentId: docId,
+          userId,
+          chunkIndex: i + j,
+          content,
+          embedding: vectors[i + j],
+          createdAt: now,
+        }))
+      );
+    }
 
     return NextResponse.json({
       document: {

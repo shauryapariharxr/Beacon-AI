@@ -232,7 +232,7 @@ export default function HomePage() {
             </Link>
             <Link
               href="/signup"
-              className="inline-flex items-center justify-center h-11 px-6 rounded-xl glass text-ink hover:bg-white/[0.07] transition-colors"
+              className="inline-flex items-center justify-center h-11 px-6 rounded-xl surface-2 text-ink hover:bg-white/[0.09] transition-colors"
             >
               Create a free account
             </Link>

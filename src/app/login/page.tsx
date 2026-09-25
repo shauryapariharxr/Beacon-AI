@@ -280,10 +280,15 @@ export default function LoginPage() {
         </Link>
       </form>
 
+      {/* Matches the wording of the same call to action on the landing page,
+          rather than a second, different label for the same destination. */}
       <div className="text-sm text-muted animate-fade-up" style={{ animationDelay: "200ms" }}>
         Don&apos;t have an account?{" "}
-        <Link href="/signup" className="text-lamp font-medium hover:underline">
-          Create one
+        <Link
+          href="/signup"
+          className="text-lamp font-medium rounded underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-lamp"
+        >
+          Create a free account
         </Link>
       </div>
     </div>

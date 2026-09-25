@@ -11,7 +11,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "./db";
 import { memories } from "./schema";
-import { embed, toVectorLiteral } from "./embeddings";
+import { embed, toVectorLiteral, hasEmbeddings } from "./embeddings";
 import {
   hasProviders,
   nextProviderAttempt,
@@ -126,10 +126,29 @@ function keywordTerms(message: string): string[] {
   )].slice(0, 6);
 }
 
+/**
+ * Embed a query once so both retrievers can share it. The chat route used to
+ * call `embed()` twice per message (documents and memories each embedded the
+ * same text), which doubled embedding spend and added a full round-trip of
+ * latency to every single reply. Returns null when embeddings are unavailable
+ * or the call fails — callers degrade to the keyword fallback.
+ */
+export async function embedQuery(text: string): Promise<number[] | null> {
+  if (!hasEmbeddings() || !text.trim()) return null;
+  try {
+    const [vec] = await embed([text]);
+    return vec ?? null;
+  } catch (err) {
+    console.error("Query embedding failed:", err);
+    return null;
+  }
+}
+
 export async function retrieveDocumentContext(
   userId: string,
   query: string,
-  documentIds?: string[]
+  documentIds?: string[],
+  queryVector?: number[] | null
 ): Promise<DocMatch[] | null> {
   if (!userId || !query.trim()) return null;
 
@@ -138,8 +157,13 @@ export async function retrieveDocumentContext(
   const pinned = Boolean(documentIds?.length);
   const maxDist = pinned ? 0.85 : 0.72;
 
+  // `undefined` means "no vector was supplied, compute one" (keeps this
+  // function usable on its own); `null` means "embedding is unavailable" and
+  // goes straight to the keyword fallback.
+  const qvec = queryVector === undefined ? await embedQuery(query) : queryVector;
+  if (!qvec) return keywordFallback(userId, query, documentIds);
+
   try {
-    const [qvec] = await embed([query]);
     const lit = toVectorLiteral(qvec);
     const docFilter = documentIds?.length
       ? sql` AND c.document_id IN (${sql.join(
@@ -164,45 +188,57 @@ export async function retrieveDocumentContext(
       .filter((m) => Number.isFinite(m.dist) && m.dist <= maxDist);
     return matches.length ? matches : null;
   } catch (err) {
-    // Embedding search failed (e.g. embedding API down) — fall back to a
-    // cheap ILIKE keyword scan rather than losing document context entirely.
+    // Vector search failed (e.g. the embedding column is missing, or the DB
+    // rejected the operator) — fall back to a cheap ILIKE keyword scan rather
+    // than losing document context entirely.
     console.error("Vector doc search failed, trying keyword fallback:", err);
-    const terms = keywordTerms(query);
-    if (!terms.length) return null;
-    const likes = sql.join(
-      terms.map((t) => sql`c.content ILIKE ${"%" + t + "%"}`),
-      sql` OR `
-    );
-    const docFilter = documentIds?.length
-      ? sql` AND c.document_id IN (${sql.join(
-          documentIds.map((id) => sql`${id}`),
-          sql`, `
-        )})`
-      : sql``;
-    const res = await db.execute(sql`
-      SELECT c.content, d.filename, 0.5::float8 AS dist
-      FROM document_chunks c
-      JOIN documents d ON d.id = c.document_id
-      WHERE c.user_id = ${userId} AND (${likes})${docFilter}
-      LIMIT 4
-    `);
-    const matches = rowsOf(res).map((r) => ({
-      filename: String(r.filename),
-      content: String(r.content),
-      dist: Number(r.dist),
-    }));
-    return matches.length ? matches : null;
+    return keywordFallback(userId, query, documentIds);
   }
+}
+
+/** Lexical ILIKE scan used when embeddings are unavailable or fail. */
+async function keywordFallback(
+  userId: string,
+  query: string,
+  documentIds?: string[]
+): Promise<DocMatch[] | null> {
+  const terms = keywordTerms(query);
+  if (!terms.length) return null;
+  const likes = sql.join(
+    terms.map((t) => sql`c.content ILIKE ${"%" + t + "%"}`),
+    sql` OR `
+  );
+  const docFilter = documentIds?.length
+    ? sql` AND c.document_id IN (${sql.join(
+        documentIds.map((id) => sql`${id}`),
+        sql`, `
+      )})`
+    : sql``;
+  const res = await db.execute(sql`
+    SELECT c.content, d.filename, 0.5::float8 AS dist
+    FROM document_chunks c
+    JOIN documents d ON d.id = c.document_id
+    WHERE c.user_id = ${userId} AND (${likes})${docFilter}
+    LIMIT 4
+  `);
+  const matches = rowsOf(res).map((r) => ({
+    filename: String(r.filename),
+    content: String(r.content),
+    dist: Number(r.dist),
+  }));
+  return matches.length ? matches : null;
 }
 
 export async function retrieveMemoryContext(
   userId: string,
   query: string,
-  excludeConversationId?: string
+  excludeConversationId?: string,
+  queryVector?: number[] | null
 ): Promise<MemoryMatch[] | null> {
   if (!userId || !query.trim()) return null;
   try {
-    const [qvec] = await embed([query]);
+    const qvec = queryVector === undefined ? await embedQuery(query) : queryVector;
+    if (!qvec) return null;
     const lit = toVectorLiteral(qvec);
     // Exclude the current conversation: its turns are already in the
     // message history the model sees — recalling them wastes context.
@@ -236,7 +272,8 @@ export function buildDocumentContextBlock(matches: DocMatch[]): string {
     "\n\nDOCUMENT CONTEXT — excerpts retrieved from documents the user attached to this chat:\n" +
     lines.join("\n\n") +
     "\nDOCUMENT RULES:\n" +
-    "- Ground any answer about the attached documents in these excerpts, and cite the excerpt id (e.g. [D1]) immediately after the sentence that uses it.\n" +
+    "- Ground any answer about the attached documents in these excerpts, and cite the excerpt id in plain ASCII form — [D1], [D2] — immediately after the sentence that uses it. Never use any other citation style (no 【D1】, no (D1), no footnote numbers).\n" +
+    "- Quote numbers, names and measurements ONLY if they appear in the excerpts above; never fill a gap from memory or guess.\n" +
     "- If the excerpts don't contain what's needed, answer generally but say the documents don't cover it — never invent document content."
   );
 }
