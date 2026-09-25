@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 
 const COOKIE_NAME = "session";
 
-function getSecret(): Uint8Array {
+export function getJwtSecret(): Uint8Array {
   const value = process.env.JWT_SECRET;
   if (!value || value.length < 32) {
     // In production a weak/missing JWT_SECRET lets anyone forge session
@@ -20,7 +20,7 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(value);
 }
 
-const secret = getSecret();
+const secret = getJwtSecret();
 
 export async function hashPassword(password: string) {
   return bcrypt.hash(password, 10);

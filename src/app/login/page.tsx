@@ -52,6 +52,29 @@ export default function LoginPage() {
     return false;
   }
 
+  /** True when this browser already holds a valid admin cookie. */
+  async function adminSessionActive(): Promise<boolean> {
+    try {
+      const res = await fetch("/api/admin/session");
+      if (!res.ok) return false;
+      const data = await res.json();
+      return Boolean(data?.admin);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Send the visitor where they belong. Admins use this same form, so the
+   * password login tells us (`admin: true`) and we open the panel instead of
+   * the chat dashboard. The Firebase/provider paths never see the password, so
+   * there we ask the server which session exists.
+   */
+  async function goAfterLogin(explicitAdmin?: boolean) {
+    const isAdmin = explicitAdmin ?? (await adminSessionActive());
+    router.push(isAdmin ? "/admin" : "/dashboard");
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -65,7 +88,7 @@ export default function LoginPage() {
         const idToken = await firebaseEmailPasswordIdToken(email.trim(), password);
         const ok = await exchangeToken(idToken);
         if (ok) {
-          router.push("/dashboard");
+          await goAfterLogin();
           return;
         }
       } catch (err: any) {
@@ -77,6 +100,10 @@ export default function LoginPage() {
           "user-not-found",
           "invalid-credential",
           "wrong-password",
+          // The admin's address is operator-chosen and often isn't a valid
+          // email to Firebase (e.g. an internal pseudo-domain), so this must
+          // fall through too or the admin could never reach the panel.
+          "invalid-email",
           "configuration-not-found",
           "operation-not-allowed",
           "invalid-api-key",
@@ -90,7 +117,7 @@ export default function LoginPage() {
           });
           const data = await res.json().catch(() => ({}));
           if (res.ok) {
-            router.push("/dashboard");
+            await goAfterLogin(Boolean(data.admin));
             return;
           }
           setError(data.error || "Login failed");
@@ -112,7 +139,7 @@ export default function LoginPage() {
     const data = await res.json().catch(() => ({}));
 
     if (res.ok) {
-      router.push("/dashboard");
+      await goAfterLogin(Boolean(data.admin));
       return;
     }
     setError(data.error || "Login failed");
@@ -124,7 +151,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const idToken = await getToken();
-      if (await exchangeToken(idToken)) router.push("/dashboard");
+      if (await exchangeToken(idToken)) await goAfterLogin();
     } catch (err: any) {
       setError(err?.message || "Sign-in failed");
     }

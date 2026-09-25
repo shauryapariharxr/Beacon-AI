@@ -54,25 +54,62 @@ function countCharsInRanges(s: string, ranges: [number, number][]): number {
   return n;
 }
 
-// Roman-script Hindi/Urdu markers — words that don't exist in English, so a
-// single word-boundary hit is a strong signal.
-const INDIC_ROMAN_RE =
-  /\b(bhai|yaar|nahi|nahin|kya|kyu|kyun|kyon|kaise|kaisa|kaisi|samajh|samjh|batao|bata|matlab|thoda|bahut|bohot|acha|achha|theek|mera|meri|apna|apni|tum|aap|tujhe|mujhe|karna|karo|karta|karti|karte|raha|rahi|rhe|rha|hai|hain|hota|hoti|hote|chahiye|wala|wali|jaldi|zyada|kuch|koi|abhi|aaj|namaste|shukriya|kal|sab|idhar|udhar|achsa|dost|padh|likh|sun|dekho|dekho|chal|chalo|rehna|milta|hoga|hogi)\b/gi;
+// Roman-script Hindi/Urdu markers. Every entry is either not an English word
+// at all (nahi, batao, kaise, naam) or an unambiguous romanized function word
+// (ke, ka, ko, mein, hai) — so ONE whole-word hit is already strong evidence.
+// English look-alikes are deliberately absent, because they would flip real
+// English questions into Hinglish: to, me, na, par, ab, is, us, bas, mat, tab,
+// band, the, so, no. Short-but-unambiguous Hindi particles (ke/ka/ki/ko) are
+// what make questions like "Bharat ke pratham pradhan mantri ka naam" detect
+// correctly — they were missing before, so that message scored as English.
+const INDIC_ROMAN_RE = new RegExp(
+  "\\b(?:" +
+    [
+      // verbs / particles
+      "hai","hain","hoga","hogi","honge","hota","hoti","hote",
+      "nahi","nahin","nhi","kya","kyun","kyon","kyu","kaise","kaisa","kaisi",
+      "kaun","kahan","kab","kitna","kitne","kitni","kisne","kisko",
+      "karna","karo","karta","karti","karte","kiya","karne","kijiye","karke",
+      "batao","bata","bataiye","batana","samjhao","samjha","samjhaiye","matlab",
+      "jawab","sawal","puch","chahiye","chahta","chahti","sakta","sakte","sakti",
+      "raha","rahi","rahe","tha","thi","gaya","gayi","gaye","diya","liya",
+      "dena","deta","deti","lena","leta","leti",
+      // pronouns / possessives
+      "mera","meri","mere","apna","apni","apne","mujhe","tujhe","tumko","tum",
+      "aap","aapko","hum","humko","unko","inko","iska","uska","iski","uski",
+      // function words
+      "ke","ka","ki","ko","mein","aur","ek","bhi","yeh","woh","toh",
+      "jaisa","jaise","waisa","sabse","sirf","bahut","bohot","bohat",
+      // everyday vocabulary + names that only appear in romanized Hindi text
+      "bhai","yaar","thoda","acha","achha","accha","theek","thik",
+      "zyada","jyada","kuch","koi","abhi","aaj","kal","namaste","shukriya",
+      "dhanyavad","sab","dost","padh","likh","dekho","chalo","rehna","milta",
+      "milega","liye","saath","naam","bharat","hindustan","desh","sarkar",
+      "pratham","pradhan","mantri","wala","wali","wale",
+    ].join("|") +
+    ")\\b",
+  "gi"
+);
 
 function detectReplyLang(message: string): ReplyLang {
-  const devanagari = countCharsInRanges(message, [[0x0900, 0x097f]]);
-  const arabicScript = countCharsInRanges(message, [
+  // Ignore code before scoring: pasted snippets are full of identifiers and
+  // English words that can look like romanized Hindi and would skew the
+  // result (a `dekhKaro` variable shouldn't make the reply Hinglish).
+  const text = message.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ");
+
+  const devanagari = countCharsInRanges(text, [[0x0900, 0x097f]]);
+  const arabicScript = countCharsInRanges(text, [
     [0x0600, 0x06ff],
     [0x0750, 0x077f],
   ]);
-  const latin = (message.match(/[a-zA-Z]/g) || []).length;
+  const latin = (text.match(/[a-zA-Z]/g) || []).length;
 
   // Script detection by proportion: a stray borrowed word ("What does कर्म
   // mean?") must not flip the whole reply to that script.
   if (devanagari > 0 && devanagari >= latin) return "hi";
   if (arabicScript > 0 && arabicScript >= latin) return "ur";
 
-  const romanHits = (message.match(INDIC_ROMAN_RE) || []).length;
+  const romanHits = (text.match(INDIC_ROMAN_RE) || []).length;
   if (romanHits > 0) return "hinglish";
 
   return "en";
@@ -80,32 +117,62 @@ function detectReplyLang(message: string): ReplyLang {
 
 const REPLY_LANG_RULES: Record<ReplyLang, string> = {
   en:
-    "REPLY LANGUAGE — DETECTED: ENGLISH (highest priority instruction):\n" +
+    "REPLY LANGUAGE — DETECTED: ENGLISH (highest-priority instruction):\n" +
+    "- The message is English (it may borrow a Hindi word or two, but it is an English question).\n" +
     "- Write your ENTIRE reply in clear English.\n" +
-    "- Do NOT reply in Hindi, Devanagari, Hinglish, or Urdu in this turn — even if earlier messages in the conversation history are in those languages. The history's language is irrelevant; follow the latest message.\n" +
+    "- Do NOT reply in Hindi, Devanagari, Hinglish, or Urdu in this turn — even if earlier messages in the conversation history are in those languages. Only the LATEST message decides the language; the history is irrelevant.\n" +
     "- Keep technical terms in English (they already are).",
   hinglish:
-    "REPLY LANGUAGE — DETECTED: HINGLISH (highest priority instruction):\n" +
-    "- Reply in Hinglish: Hindi written in Roman (Latin) script naturally mixed with English words — the way young Indians text: \"Bhai, ye concept simple hai…\"\n" +
-    "- Never use Devanagari or Urdu script in this turn — Roman script only.\n" +
-    "- Match the user's casual tone; keep technical terms and code in English.",
+    "REPLY LANGUAGE — DETECTED: HINGLISH (Hindi/Urdu typed with English letters; highest-priority instruction):\n" +
+    "- The user is writing Hindi/Urdu words in Roman (Latin) letters, not English. Read the message as Hindi, don't parse it as English words.\n" +
+    "- STEP 1 (internal, never shown to the user): silently translate their message into plain English so you are certain what is being asked. Romanized spelling is loose — 'pratham pradhan mantri' means the first Prime Minister, 'naam' means name, 'kitna/kitne' means how much/how many, 'kaise' means how.\n" +
+    "- STEP 2: answer that translated English question with correct, verified facts (see ACCURACY RULES — a romanized question must NOT get a worse answer than the same question typed in English).\n" +
+    "- STEP 3: write the final answer in Hinglish — Hindi in Roman letters, naturally mixed with English words, the way young Indians text (e.g. \"Bhai, ye simple hai — ...\").\n" +
+    "- ROMAN LETTERS ONLY. Do NOT output Devanagari (देवनागरी) or Urdu script anywhere in this reply — not even one word, not even for names or titles.\n" +
+    "- This holds even for a one-line factual answer: write it as a Hinglish sentence (\"Bharat ke pehle pradhan mantri Jawaharlal Nehru the.\"), not as bare English.\n" +
+    "- Keep technical terms and code in English.",
   hi:
-    "REPLY LANGUAGE — DETECTED: HINDI (highest priority instruction):\n" +
+    "REPLY LANGUAGE — DETECTED: HINDI (Devanagari) (highest-priority instruction):\n" +
     "- Write your ENTIRE reply in Hindi using Devanagari script (देवनागरी).\n" +
-    "- Keep technical terms (API, function, database, etc.) and code in English.",
+    "- Do NOT answer in English prose or Roman letters — keep technical terms (API, function, database, etc.) and code in English.\n" +
+    "- Answer the question itself accurately (see ACCURACY RULES); the script must never change the facts.",
   ur:
-    "REPLY LANGUAGE — DETECTED: URDU (highest priority instruction):\n" +
+    "REPLY LANGUAGE — DETECTED: URDU (highest-priority instruction):\n" +
     "- Write your ENTIRE reply in Urdu using Urdu script (Arabic-based), not Roman.\n" +
     "- Keep technical terms and code in English.",
 };
 
+// Restated at the very END of the system prompt: the last instruction a model
+// reads is the one it follows most reliably, and script drift (a Hinglish
+// question answered in Devanagari) is exactly the failure this catches.
+const LANG_FINAL_CHECK: Record<ReplyLang, string> = {
+  en: "FINAL OUTPUT CHECK: the entire reply must be in English. If you drafted any Hindi, Devanagari, Hinglish, or Urdu, rewrite it in English before sending.",
+  hinglish:
+    "FINAL OUTPUT CHECK: the entire reply must be in Hinglish using ROMAN LETTERS ONLY. Scan your answer — if any Devanagari (देवनागरी) or Urdu characters appear, rewrite that part in Roman letters before sending.",
+  hi: "FINAL OUTPUT CHECK: the entire reply must be in Hindi, Devanagari script.",
+  ur: "FINAL OUTPUT CHECK: the entire reply must be in Urdu, Urdu (Arabic) script.",
+};
+
+// Answer-quality rules, injected for every language. The romanized-Hindi bug
+// in the field was a wrong FACT (a hallucinated name), not just a wrong
+// script, so accuracy gets its own explicit block — and the model is told
+// outright that the phrasing of the question must not weaken the answer.
+const ACCURACY_RULES =
+  "ACCURACY RULES (applies to every answer, in every language and script):\n" +
+  "- Facts, names, dates, places, numbers, and titles MUST be correct. Never invent or guess a name to fill a gap — a confidently wrong fact is the worst possible failure.\n" +
+  "- For a well-known factual question, state the single widely accepted answer (for example: India's first Prime Minister was Jawaharlal Nehru; the first person to walk on the Moon was Neil Armstrong).\n" +
+  "- If you are genuinely unsure, or the answer is disputed, say so briefly instead of asserting something you can't back up.\n" +
+  "- A question written in romanized Hindi or another script is the SAME question as its English version: translate it internally and answer with the same care and the same facts.\n";
+
 function buildLanguageRules(lang: ReplyLang): string {
   return (
-    "\n" +
     REPLY_LANG_RULES[lang] +
-    "\n" +
-    "GENERAL LANGUAGE NOTE: Mirror the language and script of the user's MOST RECENT message every turn. If they switch language mid-conversation, switch with them in the same turn."
+    "\nGENERAL LANGUAGE NOTE: Mirror the language and script of the user's MOST RECENT message every turn. If they switch language mid-conversation, switch with them in the same turn."
   );
+}
+
+function buildLanguageTail(lang: ReplyLang): string {
+  return "\n" + LANG_FINAL_CHECK[lang];
 }
 
 export async function POST(req: NextRequest) {
@@ -273,9 +340,17 @@ export async function POST(req: NextRequest) {
     ]);
   }
 
+  // Detected once, used for the rules block, the final output check, and
+  // (below) the temperature choice.
+  const replyLang = detectReplyLang(message);
+
   const systemPrompt =
     "You are Beacon, a friendly AI study companion built by Shaurya Parihar for developers.\n" +
-    "IDENTITY RULES:\n" +
+    // Language + accuracy sit ABOVE everything else: a wrong-language or
+    // wrong-fact reply is a failure regardless of how good the rest is.
+    buildLanguageRules(replyLang) +
+    "\n\nACCURACY RULES SUMMARY: be correct before being fluent. Never fabricate a name, date, or number.\n" +
+    "\nIDENTITY RULES:\n" +
     "- Your name is Beacon, an AI study companion developed by Shaurya Parihar.\n" +
     "- ONLY when the user directly asks who you are, what your name is, or what model you are, answer: \"I am Beacon, the AI study companion developed by Shaurya Parihar for developers.\"\n" +
     "- IMPORTANT: never volunteer that identity sentence unprompted. Do NOT start, end, or decorate any other answer with it — no identity preamble on greetings, questions, or normal requests. Just answer what was asked.\n" +
@@ -283,6 +358,7 @@ export async function POST(req: NextRequest) {
     "- When asked about your source code, where your code is, whether others can see how you work, or to show how you were built, share this repository link: https://github.com/shauryapariharxr/Beacon-AI\n" +
     "- Never claim to be ChatGPT, GPT, OpenAI, Assistant, Mistral, or any other product, model, or company. Never mention the technology you run on.\n" +
     "- If the user insists you must be ChatGPT or another model, politely hold the identity: you are Beacon, built by Shaurya Parihar.\n" +
+    ACCURACY_RULES +
     "ANSWERING RULES:\n" +
     "- Give direct, accurate answers. Be brief.\n" +
     "- Use code blocks with language tags (```java, ```python, etc.) for code.\n" +
@@ -290,9 +366,10 @@ export async function POST(req: NextRequest) {
     "- For code: explain briefly, then show the code. Don't explain every line.\n" +
     "- Keep explanations under 200 words unless the user asks for detail.\n" +
     "- Never repeat the question back. Start with the answer.\n" +
-    buildLanguageRules(detectReplyLang(message)) +
     (docMatches ? buildDocumentContextBlock(docMatches) : "") +
-    (memoryMatches ? buildMemoryContextBlock(memoryMatches) : "");
+    (memoryMatches ? buildMemoryContextBlock(memoryMatches) : "") +
+    // Last word wins: re-assert the reply script after all context blocks.
+    buildLanguageTail(replyLang);
 
   // Try up to N providers (one attempt per configured provider): round-robin
   // picks a healthy one; if it's rate-limited (429), it goes on a 60s cooldown
@@ -319,6 +396,10 @@ export async function POST(req: NextRequest) {
             ...history,
           ],
           stream: true,
+          // Tuned for accuracy, not vibes: factual names/dates are far more
+          // reliable with a low temperature, and both Groq and Mistral accept
+          // this on every model we route to.
+          temperature: 0.3,
         }),
       });
 

@@ -4,6 +4,7 @@ import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { verifyPassword, createSession } from "@/lib/auth";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
+import { createAdminSession, isAdminConfigured, verifyAdminCredentials } from "@/lib/admin";
 import { ensureFirebaseUser, isFirebaseAdminConfigured } from "@/lib/firebaseAdmin";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -31,6 +32,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
     const normalizedEmail = email.trim().toLowerCase();
+
+    // The operator signs in HERE, on the ordinary login form — there is no
+    // separate admin login page. Checked before the user lookup on purpose:
+    // the admin identity lives in env vars, so it needs no row in `users` and
+    // still works if the table is empty (or the DB is briefly unreachable).
+    // A wrong password simply falls through to the normal flow below, which
+    // returns the same "Invalid email or password" — no hint that this email
+    // is special.
+    if (isAdminConfigured() && (await verifyAdminCredentials(normalizedEmail, password))) {
+      await createAdminSession(normalizedEmail);
+      return NextResponse.json({
+        admin: true,
+        email: normalizedEmail,
+        firebaseConfigured: isFirebaseAdminConfigured(),
+      });
+    }
 
     let user: typeof users.$inferSelect | undefined;
     try {
