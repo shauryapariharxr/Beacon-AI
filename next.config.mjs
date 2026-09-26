@@ -12,7 +12,21 @@ const nextConfig = {
     serverComponentsExternalPackages: ["firebase-admin"],
   },
   async headers() {
+    const noStore = (source) => ({
+      source,
+      headers: [
+        // Auth-gated pages must never come from any cache. Besides normal HTTP
+        // caches, Chrome/Firefox skip the back/forward cache for no-store
+        // documents — so a restored tab cannot paint the signed-in UI without
+        // the server re-checking the session.
+        { key: "Cache-Control", value: "private, no-store, max-age=0, must-revalidate" },
+      ],
+    });
     return [
+      noStore("/dashboard"),
+      noStore("/admin"),
+      noStore("/login"),
+      noStore("/signup"),
       {
         source: "/:path*",
         headers: [

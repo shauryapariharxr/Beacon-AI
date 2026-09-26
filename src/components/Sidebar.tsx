@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Plus, MessageSquare, Trash2, X } from "lucide-react";
+import { ConfirmLogoutDialog } from "./ConfirmLogoutDialog";
+import { hardLogout } from "@/lib/hardLogout";
 
 type Conversation = { id: string; title: string; createdAt: number };
 
@@ -31,6 +34,18 @@ export function Sidebar({
 }) {
   const displayName = (userName && userName.trim()) || (userEmail ? userEmail.split("@")[0] : "");
   const initial = displayName ? displayName[0].toUpperCase() : "?";
+  // The Beacon mark in this sidebar used to be a plain link to "/" — one
+  // accidental tap (it sits right above the history list) silently ended the
+  // session. It now asks first; confirming logs out, cancelling stays put.
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    // Hard navigation: drops the signed-in SPA shell from history and the
+    // back/forward cache, so Back/Forward can't resurrect the dashboard.
+    await hardLogout("/api/auth/logout", "/");
+  }
 
   return (
     <>
@@ -50,10 +65,15 @@ export function Sidebar({
           ${mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"}`}
       >
         <div className="p-4 flex items-center gap-2.5">
-          <Link href="/" className="flex items-center gap-2.5">
+          <button
+            onClick={() => setConfirmLogout(true)}
+            aria-label="Beacon home — opens the log out confirmation"
+            title="Log out"
+            className="flex items-center gap-2.5 rounded-lg hover:bg-white/[0.05] transition-colors px-1 py-0.5 -mx-1"
+          >
             <Image src="/logo.svg" alt="" width={28} height={28} />
             <span className="font-serif font-semibold text-base">Beacon</span>
-          </Link>
+          </button>
           <button
             onClick={onClose}
             className="ml-auto md:hidden p-1.5 -mr-1 rounded-lg text-muted hover:text-ink hover:bg-white/[0.06] transition-colors"
@@ -121,6 +141,13 @@ export function Sidebar({
             <div className="text-xs text-muted truncate">{userEmail}</div>
           </div>
         </div>
+
+        <ConfirmLogoutDialog
+          open={confirmLogout}
+          busy={loggingOut}
+          onCancel={() => setConfirmLogout(false)}
+          onConfirm={handleLogout}
+        />
       </div>
     </>
   );

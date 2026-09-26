@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -20,6 +19,9 @@ import {
   Search,
   Users,
 } from "lucide-react";
+import { ConfirmLogoutDialog } from "./ConfirmLogoutDialog";
+import { useBackLogoutGuard } from "@/lib/useBackLogoutGuard";
+import { hardLogout } from "@/lib/hardLogout";
 
 type AdminStats = {
   totalUsers: number;
@@ -136,6 +138,15 @@ export function AdminPanel({
   const [detailQuery, setDetailQuery] = useState("");
   const [debouncedDetailQuery, setDebouncedDetailQuery] = useState("");
   const [openAnswers, setOpenAnswers] = useState<Set<string>>(new Set());
+  // Same guard as the user side: one modal between the click and the session
+  // ending, so a stray tap on the header can't sign the operator out.
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  // Same guard as the user sidebar: the Beacon mark used to be a plain link
+  // to "/" that silently ended the operator's session.
+  const [confirmHome, setConfirmHome] = useState(false);
+  // Browser Back on the admin panel asks before ending the session too.
+  const { confirming: backConfirming, settle: settleBackGuard } = useBackLogoutGuard();
 
   const load = useCallback(
     async (q: string) => {
@@ -220,8 +231,14 @@ export function AdminPanel({
   }, [selected, debouncedDetailQuery, router]);
 
   async function signOut() {
-    await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
-    router.replace("/login");
+    setLoggingOut(true);
+    try {
+      // Hard navigation (see hardLogout): the admin shell must not survive in
+      // history or the back/forward cache after the session ends.
+      await hardLogout("/api/admin/logout", "/login");
+    } finally {
+      setLoggingOut(false);
+    }
   }
 
   function openUser(user: AdminUserRow) {
@@ -302,10 +319,15 @@ export function AdminPanel({
     <div className="min-h-screen pb-16">
       <header className="sticky top-0 z-40 glass-nav border-b border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Link href="/" className="flex items-center gap-2">
+          <button
+            onClick={() => setConfirmHome(true)}
+            aria-label="Beacon home — opens the log out confirmation"
+            title="Log out"
+            className="flex items-center gap-2 rounded-lg hover:bg-white/[0.05] transition-colors px-1.5 py-1 -mx-1.5"
+          >
             <Image src="/logo.svg" alt="" width={26} height={26} />
             <span className="font-serif font-semibold">Beacon</span>
-          </Link>
+          </button>
           <span className="text-[11px] px-2 py-0.5 rounded-full bg-lamp/15 text-lamp border border-lamp/30 font-medium">
             ADMIN
           </span>
@@ -319,7 +341,7 @@ export function AdminPanel({
             Refresh
           </button>
           <button
-            onClick={signOut}
+            onClick={() => setConfirmLogout(true)}
             className="flex items-center gap-1.5 text-xs text-muted hover:text-red-400 border border-white/10 rounded-lg px-2.5 py-1.5 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -327,6 +349,17 @@ export function AdminPanel({
           </button>
         </div>
       </header>
+
+      <ConfirmLogoutDialog
+        open={confirmLogout || confirmHome || backConfirming}
+        busy={loggingOut}
+        onCancel={() => {
+          setConfirmLogout(false);
+          setConfirmHome(false);
+          settleBackGuard(false);
+        }}
+        onConfirm={signOut}
+      />
 
       <main className="max-w-6xl mx-auto px-4 pt-6 space-y-8">
         {configWarning && !selected && (

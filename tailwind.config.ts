@@ -18,9 +18,12 @@ const config: Config = {
         lampdim: "#8a6428",
       },
       fontFamily: {
-        serif: ["'Space Grotesk'", "system-ui", "sans-serif"],
-        sans: ["'Space Grotesk'", "system-ui", "sans-serif"],
-        mono: ["'Space Grotesk'", "ui-monospace", "monospace"],
+        // `serif` is the display/brand role in this codebase (headings use
+        // font-serif) — it now resolves to Poppins.
+        serif: ["'Poppins'", "'Inter'", "system-ui", "sans-serif"],
+        sans: ["'Inter'", "'Poppins'", "system-ui", "sans-serif"],
+        // Real monospace: inline `code` styling depends on fixed-width glyphs.
+        mono: ["'JetBrains Mono'", "ui-monospace", "'Cascadia Mono'", "Menlo", "monospace"],
       },
     },
   },

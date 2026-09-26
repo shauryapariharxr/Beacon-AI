@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Mail, Lock, Eye, EyeOff, MessageCircle, Loader2, CheckCircle2 } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, MessageCircle, Loader2, CheckCircle2, ArrowLeft } from "lucide-react";
 import {
   firebaseEmailPasswordIdToken,
   firebaseGithubIdToken,
@@ -52,27 +52,48 @@ export default function LoginPage() {
     return false;
   }
 
-  /** True when this browser already holds a valid admin cookie. */
-  async function adminSessionActive(): Promise<boolean> {
+  /**
+   * True when the browser holds a VALID user session. Used to break the
+   * Back/Forward loop: browser history caches the login page, so after
+   * signing in, Back landed on a login form while the user was still logged
+   * in (and Forward then re-entered the dashboard "without login"). When we
+   * detect an existing session we replace the history entry — Back/Forward
+   * can no longer land on a stale login page at all.
+   */
+  async function userSessionActive(): Promise<boolean> {
     try {
-      const res = await fetch("/api/admin/session");
+      const res = await fetch("/api/auth/me");
       if (!res.ok) return false;
       const data = await res.json();
-      return Boolean(data?.admin);
+      return Boolean(data?.user);
     } catch {
       return false;
     }
   }
 
+  const sessionCheckRef = useRef(false);
+  useEffect(() => {
+    if (sessionCheckRef.current) return;
+    sessionCheckRef.current = true;
+    (async () => {
+      if (await userSessionActive()) {
+        // Already signed in: this login page is a stale history entry.
+        // replace() so neither Back nor Forward returns here.
+        router.replace("/dashboard");
+      }
+    })();
+  }, [router]);
+
   /**
-   * Send the visitor where they belong. Admins use this same form, so the
-   * password login tells us (`admin: true`) and we open the panel instead of
-   * the chat dashboard. The Firebase/provider paths never see the password, so
-   * there we ask the server which session exists.
+   * Send the visitor where they belong. Only the admin PASSWORD login may
+   * route to /admin — and only when the server itself says `admin: true` for
+   * THIS response. Provider logins (Google/GitHub) pass `false` explicitly:
+   * they can never be admin logins, so an `admin_session` cookie merely
+   * lingering in the browser (e.g. the operator was last in the panel) must
+   * not drag a normal Google user into the admin dashboard.
    */
-  async function goAfterLogin(explicitAdmin?: boolean) {
-    const isAdmin = explicitAdmin ?? (await adminSessionActive());
-    router.push(isAdmin ? "/admin" : "/dashboard");
+  async function goAfterLogin(explicitAdmin: boolean) {
+    router.push(explicitAdmin ? "/admin" : "/dashboard");
   }
 
   async function submit(e: React.FormEvent) {
@@ -88,7 +109,9 @@ export default function LoginPage() {
         const idToken = await firebaseEmailPasswordIdToken(email.trim(), password);
         const ok = await exchangeToken(idToken);
         if (ok) {
-          await goAfterLogin();
+          // A Firebase password login is a USER login by definition — the
+          // admin identity never lives in Firebase, so this is never /admin.
+          await goAfterLogin(false);
           return;
         }
       } catch (err: any) {
@@ -151,7 +174,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const idToken = await getToken();
-      if (await exchangeToken(idToken)) await goAfterLogin();
+      if (await exchangeToken(idToken)) await goAfterLogin(false);
     } catch (err: any) {
       setError(err?.message || "Sign-in failed");
     }
@@ -178,7 +201,19 @@ export default function LoginPage() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-4 py-12 gap-8">
-      <div className="text-center animate-fade-up">
+      {/* Way home when you landed here by accident. The card's own "Continue
+          without account" goes to chat; this goes to the landing page.
+          Pinned to the viewport's top-left corner, clear of the centered card. */}
+      <Link
+        href="/"
+        className="fixed top-4 z-10 flex items-center gap-1.5 text-sm text-muted hover:text-ink transition-colors animate-fade-up bg-bg/80 rounded-lg px-2 py-1"
+        style={{ left: "max(1rem, env(safe-area-inset-left))" }}
+      >
+        <ArrowLeft className="w-4 h-4 shrink-0" />
+        <span>Back to home</span>
+      </Link>
+
+      <div className="text-center animate-fade-up" style={{ animationDelay: "60ms" }}>
         <h1 className="font-serif font-bold text-4xl text-ink">Welcome back</h1>
         <p className="text-muted mt-2">Continue where you left off.</p>
       </div>

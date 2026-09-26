@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -23,7 +23,7 @@ html {
 }
 
 body {
-  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-family: "Inter", "Poppins", system-ui, sans-serif;
 }
 
 /* Amber text caret in every input.
@@ -45,6 +45,14 @@ textarea,
   input, textarea, select {
     font-size: 16px !important;
   }
+}
+
+/* Headings carry the brand voice; everything else reads in Inter. Poppins is
+   loaded without its 400 weight on purpose — at body sizes on a dark UI its
+   monolinear strokes go thin and its single-storey a/g blur together, so it
+   is deliberately a headings-only face here. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Poppins", "Inter", system-ui, sans-serif;
 }
 
 /* Respect the iOS home indicator / Android gesture bar: glass bars that sit
@@ -183,6 +191,46 @@ textarea,
 
 .beacon-blink {
   animation: beacon-blink 1.4s ease-in-out infinite;
+}
+
+/* Loading screen: the Beacon mark on its amber disc in the centre, while
+   three amber arcs "breathe" around it — three 120° pie wedges that merge
+   into a full disc, expand apart, rotate 180° and snap back (the classic
+   conic-gradient aperture loader, recoloured to Beacon amber).
+
+   How the aperture works: each wedge is a conic-gradient layer with a FIXED
+   background-size (--loader-size). Animating `inset` grows the ::before box
+   while the layers stay put, so the three wedges — anchored top-right,
+   bottom and top-left — separate instead of zooming, opening gaps between
+   them. Contracting merges them back into one disc behind the logo. */
+.beacon-loader {
+  position: relative;
+}
+
+.beacon-loader::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  --arc: #0000, #e8a33d 1deg 120deg, #0000 121deg;
+  background:
+    conic-gradient(from 0deg, var(--arc)) top right,
+    conic-gradient(from 120deg, var(--arc)) bottom,
+    conic-gradient(from 240deg, var(--arc)) top left;
+  background-size: var(--loader-size) var(--loader-size);
+  background-repeat: no-repeat;
+  animation: beacon-breathe 2s infinite cubic-bezier(0.3, 1, 0, 1);
+  pointer-events: none;
+}
+
+@keyframes beacon-breathe {
+  33%  { inset: calc(var(--loader-size) * -0.2); transform: rotate(0deg); }
+  66%  { inset: calc(var(--loader-size) * -0.2); transform: rotate(180deg); }
+  100% { inset: 0; transform: rotate(180deg); }
+}
+
+.beacon-loader-core {
+  position: relative;
 }
 
 /* Thinking dots animation — bounces each dot up */

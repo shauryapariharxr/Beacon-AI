@@ -13,7 +13,9 @@ import {
   Loader2,
 } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
+import { BotAvatar } from "./BotAvatar";
 import { ModelSelector } from "./ModelSelector";
+import { ConfirmLogoutDialog } from "./ConfirmLogoutDialog";
 import { MODELS, ModelKey } from "@/lib/models";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -59,6 +61,10 @@ export function ChatWindow({
   const [pasteText, setPasteText] = useState("");
   // Filenames the server actually retrieved for the latest reply (X-Rag-Docs).
   const [ragNote, setRagNote] = useState<string | null>(null);
+  // Logging out is one confirm away: a stray tap on the avatar used to end
+  // the session instantly.
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -371,9 +377,16 @@ export function ChatWindow({
     />
   );
 
+  // The tool row is only worth its height when it actually holds something:
+  // with the model picker moved into the composer, a signed-out visitor has
+  // neither a menu button nor an account menu, and used to get a bare 24px
+  // strip with a border and nothing in it.
+  const showToolRow = Boolean(onOpenSidebar) || Boolean(isAuthed && userEmail);
+
   return (
     <div className="flex flex-col h-full">
       {fileInput}
+      {showToolRow && (
       <div className="shrink-0 flex justify-between items-center px-4 py-3 gap-2 border-b border-white/[0.06]">
         <div className="flex items-center gap-2 min-w-0">
           {onOpenSidebar && (
@@ -385,7 +398,6 @@ export function ChatWindow({
               <Menu className="w-5 h-5" />
             </button>
           )}
-          <ModelSelector value={model} onChange={setModel} isAuthed={isAuthed} />
         </div>
         <div className="flex items-center gap-2">
           {isAuthed && userEmail && (
@@ -406,7 +418,7 @@ export function ChatWindow({
                     <button
                       onClick={() => {
                         setUserMenuOpen(false);
-                        onLogout?.();
+                        setConfirmLogout(true);
                       }}
                       className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm text-ink hover:bg-white/[0.06] transition-colors"
                     >
@@ -420,6 +432,7 @@ export function ChatWindow({
           )}
         </div>
       </div>
+      )}
 
       <div className="relative flex-1 min-h-0">
         <div
@@ -429,9 +442,7 @@ export function ChatWindow({
         >
         {messages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-center gap-3 px-4">
-            <div className="w-14 h-14 rounded-full glass flex items-center justify-center mb-1">
-              <img src="/logo.svg" alt="Beacon" className="w-7 h-7" />
-            </div>
+            <BotAvatar size={56} className="mb-1" />
             {isAuthed && displayName ? (
               <>
                 <div className="font-serif font-bold text-2xl md:text-3xl text-ink capitalize">
@@ -456,11 +467,9 @@ export function ChatWindow({
           const isThinking = sending && isLastAssistant && !m.content;
           if (isThinking) {
             return (
-              <div key={i} className="flex items-center gap-3 max-w-[85%] animate-msg-in">
-                <div className="shrink-0 w-8 h-8 flex items-center justify-center">
-                  <img src="/logo.svg" alt="Beacon" className="w-7 h-7" />
-                </div>
-                <div className="glass rounded-2xl rounded-tl-md px-5 py-3.5 flex items-center gap-2">
+              <div key={i} className="flex items-center gap-2.5 max-w-[85%] animate-msg-in">
+                <BotAvatar />
+                <div className="rounded-2xl rounded-tl-md border border-white/[0.10] bg-white/[0.02] px-5 py-3.5 flex items-center gap-2">
                   <div className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-lamp thinking-dot" style={{ animationDelay: "0ms" }} />
                     <span className="w-2 h-2 rounded-full bg-lamp thinking-dot" style={{ animationDelay: "200ms" }} />
@@ -619,7 +628,10 @@ export function ChatWindow({
               </div>
             </div>
           )}
-          <div className="glass-strong rounded-2xl p-2 flex gap-2 items-end">
+          {/* Composer: the text field owns the row, and the controls sit under
+              it — model on the left, send on the right — so the box reads as
+              one input rather than a toolbar with a textarea in it. */}
+          <div className="glass-strong rounded-2xl p-2.5">
             <textarea
               ref={textareaRef}
               value={input}
@@ -644,36 +656,41 @@ export function ChatWindow({
               }}
               placeholder="Ask anything..."
               rows={1}
-              className="flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] focus:outline-none placeholder:text-muted"
+              className="w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-[15px] focus:outline-none placeholder:text-muted"
             />
-            {isAuthed && (
-              <button
-                onClick={() => setDocsOpen((v) => !v)}
-                disabled={uploading}
-                aria-label="Attach documents"
-                title="Documents — upload PDFs or notes Beacon answers from"
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shrink-0 relative ${
-                  docsOpen || pinnedIds.length
-                    ? "bg-lamp/20 text-lamp"
-                    : "text-muted hover:text-ink hover:bg-white/[0.06]"
-                }`}
-              >
-                <Paperclip className="w-4.5 h-4.5" />
-                {pinnedIds.length > 0 && (
-                  <span className="absolute translate-x-4 -translate-y-3 w-4 h-4 rounded-full bg-lamp text-[#1a1204] text-[10px] font-bold flex items-center justify-center">
-                    {pinnedIds.length}
-                  </span>
+            <div className="flex items-center justify-between gap-2 mt-0.5">
+              <div className="flex items-center gap-1 min-w-0">
+                <ModelSelector value={model} onChange={setModel} isAuthed={isAuthed} dropUp />
+                {isAuthed && (
+                  <button
+                    onClick={() => setDocsOpen((v) => !v)}
+                    disabled={uploading}
+                    aria-label="Attach documents"
+                    title="Documents — upload PDFs or notes Beacon answers from"
+                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 relative ${
+                      docsOpen || pinnedIds.length
+                        ? "bg-lamp/20 text-lamp"
+                        : "text-muted hover:text-ink hover:bg-white/[0.06]"
+                    }`}
+                  >
+                    <Paperclip className="w-4.5 h-4.5" />
+                    {pinnedIds.length > 0 && (
+                      <span className="absolute translate-x-3 -translate-y-3 w-4 h-4 rounded-full bg-lamp text-[#1a1204] text-[10px] font-bold flex items-center justify-center">
+                        {pinnedIds.length}
+                      </span>
+                    )}
+                  </button>
                 )}
+              </div>
+              <button
+                onClick={send}
+                disabled={sending || !input.trim()}
+                aria-label="Send"
+                className="w-9 h-9 rounded-full bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 transition-all shrink-0 relative"
+              >
+                <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
               </button>
-            )}
-            <button
-              onClick={send}
-              disabled={sending || !input.trim()}
-              aria-label="Send"
-              className="w-10 h-10 rounded-xl bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 transition-all shrink-0 relative"
-            >
-              <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
-            </button>
+            </div>
           </div>
           <div className="text-xs text-muted mt-2 px-1 flex items-center gap-2 flex-wrap">
             <span>
@@ -685,6 +702,23 @@ export function ChatWindow({
           </div>
         </div>
       </div>
+
+      {isAuthed && (
+        <ConfirmLogoutDialog
+          open={confirmLogout}
+          busy={loggingOut}
+          onCancel={() => setConfirmLogout(false)}
+          onConfirm={async () => {
+            setLoggingOut(true);
+            try {
+              await onLogout?.();
+            } finally {
+              setLoggingOut(false);
+              setConfirmLogout(false);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

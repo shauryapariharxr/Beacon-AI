@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { Copy, Check } from "lucide-react";
+import { BotAvatar } from "./BotAvatar";
 
 function CopyButton({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
@@ -15,19 +16,21 @@ function CopyButton({ code }: { code: string }) {
     setTimeout(() => setCopied(false), 2000);
   }, [code]);
 
+  // Flat, quiet affordance: the code header is chrome, not content, so the
+  // button only lifts on hover instead of sitting there in a filled pill.
   return (
     <button
       onClick={handleCopy}
-      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px]
-        bg-white/[0.06] hover:bg-white/[0.12] text-gray-400 hover:text-white transition-all"
+      className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 -mr-1.5 text-xs
+        text-muted hover:text-ink hover:bg-white/[0.06] transition-colors"
     >
       {copied ? (
         <>
-          <Check className="w-3 h-3" /> Copied
+          <Check className="w-3.5 h-3.5" /> Copied
         </>
       ) : (
         <>
-          <Copy className="w-3 h-3" /> Copy
+          <Copy className="w-3.5 h-3.5" /> Copy
         </>
       )}
     </button>
@@ -35,8 +38,8 @@ function CopyButton({ code }: { code: string }) {
 }
 
 const codeStyle: Record<string, React.CSSProperties> = {
-  "code[class*=\"language-\"]": { background: "transparent", color: "#ffffff", fontFamily: "'Fira Code', 'Fira Mono', Menlo, Consolas, monospace", fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre" },
-  "pre[class*=\"language-\"]": { background: "transparent", color: "#ffffff", fontFamily: "'Fira Code', 'Fira Mono', Menlo, Consolas, monospace", fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre", margin: 0, padding: 0, overflow: "auto" },
+  "code[class*=\"language-\"]": { background: "transparent", color: "#ffffff", fontFamily: "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace", fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre" },
+  "pre[class*=\"language-\"]": { background: "transparent", color: "#ffffff", fontFamily: "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace", fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre", margin: 0, padding: 0, overflow: "auto" },
   comment: { color: "#6a737d", fontStyle: "italic" },
   prolog: { color: "#6a737d" },
   cdata: { color: "#6a737d" },
@@ -68,26 +71,20 @@ const codeStyle: Record<string, React.CSSProperties> = {
   url: { color: "#7cd8d8" },
 };
 
+/**
+ * One flat code panel: a quiet header strip (language name, copy action) over
+ * a darker code well, split by a hairline rule. Deliberately no traffic-light
+ * dots and no nested card — the reply itself is already a bordered panel, and
+ * stacking two frames inside it made short answers look like a file manager.
+ */
 function CodeBlock({ language, children }: { language: string; children: string }) {
   return (
-    <div className="relative group my-3 rounded-2xl overflow-hidden
-      bg-white/[0.04] backdrop-blur-xl
-      border border-white/[0.08]
-      shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-      {/* Outer glass shell — header lives here */}
-      <div className="flex items-center justify-between px-5 py-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57] opacity-80" />
-            <span className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e] opacity-80" />
-            <span className="w-2.5 h-2.5 rounded-full bg-[#28c840] opacity-80" />
-          </div>
-          <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide ml-1">{language}</span>
-        </div>
+    <div className="my-3 rounded-xl overflow-hidden border border-white/[0.09] bg-black/30">
+      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-white/[0.07]">
+        <span className="text-xs font-mono text-muted truncate">{language}</span>
         <CopyButton code={children} />
       </div>
-      {/* Inner dark code area */}
-      <div className="mx-4 mb-4 rounded-xl bg-black/40 border border-white/[0.06] px-5 py-4 overflow-x-auto">
+      <div className="px-4 py-3.5 overflow-x-auto">
         <SyntaxHighlighter
           language={language}
           style={codeStyle}
@@ -114,16 +111,21 @@ export function MessageBubble({ role, content }: { role: "user" | "assistant"; c
   if (isUser) {
     return (
       <div className="flex justify-end animate-msg-in">
-        <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-lamp/90 text-[#1a1204] px-4 py-2.5 text-[15px] leading-relaxed">
+        <div className="max-w-[75%] rounded-[20px] rounded-br-md bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] px-4 py-2.5 text-[15px] leading-relaxed shadow-[0_2px_12px_rgba(232,163,61,0.15)]">
           {content}
         </div>
       </div>
     );
   }
 
+  // Assistant turns get the bot mark, then a flat outlined panel. Upgrading
+  // the old frosted `glass` bubble to a bordered one keeps code blocks and
+  // tables from fighting a translucent background, and drops a backdrop-filter
+  // per message — which was real compositing cost on a long conversation.
   return (
-    <div className="flex justify-start animate-msg-in">
-      <div className="max-w-[85%] rounded-2xl rounded-bl-sm glass px-4 py-3 text-[15px] leading-relaxed">
+    <div className="flex justify-start items-start gap-2.5 animate-msg-in">
+      <BotAvatar className="mt-0.5" />
+      <div className="min-w-0 max-w-[85%] rounded-2xl rounded-tl-md border border-white/[0.10] bg-white/[0.02] px-5 py-4 text-[15px] leading-relaxed">
         <div className="prose prose-invert prose-sm max-w-none
           prose-p:my-1.5 prose-headings:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0
           prose-pre:my-0 prose-pre:bg-transparent prose-pre:p-0
@@ -199,3 +201,4 @@ export function MessageBubble({ role, content }: { role: "user" | "assistant"; c
     </div>
   );
 }
+

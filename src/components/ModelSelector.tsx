@@ -9,10 +9,14 @@ export function ModelSelector({
   value,
   onChange,
   isAuthed,
+  dropUp = false,
 }: {
   value: ModelKey;
   onChange: (v: ModelKey) => void;
   isAuthed: boolean;
+  // The selector lives at the bottom of the screen inside the composer, so its
+  // menu has to open upward or it lands off-screen.
+  dropUp?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -34,7 +38,11 @@ export function ModelSelector({
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full mt-2 w-64 glass-strong rounded-xl p-1.5 z-50">
+          <div
+            className={`absolute left-0 w-64 glass-strong rounded-xl p-1.5 z-50 ${
+              dropUp ? "bottom-full mb-2" : "top-full mt-2"
+            }`}
+          >
             {Object.entries(MODELS).map(([key, m]) => {
               const locked = isLocked(key as ModelKey);
               return (

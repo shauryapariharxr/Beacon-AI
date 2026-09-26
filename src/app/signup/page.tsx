@@ -11,6 +11,7 @@ import {
   isFirebaseConfigured,
 } from "@/lib/firebase";
 import { GithubButton, GoogleButton } from "@/components/AuthProviderButtons";
+import { BeaconLoader } from "@/components/BeaconLoader";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -94,6 +95,17 @@ export default function SignupPage() {
       setError(err?.message || "Sign-in failed");
     }
     setLoading(false);
+  }
+
+  // Account creation takes a few seconds (bcrypt + Firebase mirror) — the
+  // whole form is replaced by the beacon-orbit loader so the state change is
+  // unmistakable, rather than a spinner inside the Sign Up button alone.
+  if (loading) {
+    return (
+      <div className="h-dvh flex items-center justify-center">
+        <BeaconLoader size={72} label="Creating your account…" />
+      </div>
+    );
   }
 
   return (
