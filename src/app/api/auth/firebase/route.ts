@@ -47,6 +47,17 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    // Defense in depth: the server should never mint a session for the
+    // admin identity. The admin signs in on /login with the env-var
+    // credentials; a Firebase identity (which anyone can create for any
+    // address in their own Firebase console) must never be linked to it.
+    const { isAdminConfigured, configuredAdminEmail } = await import("@/lib/admin");
+    if (isAdminConfigured() && email === configuredAdminEmail()) {
+      return NextResponse.json(
+        { error: "This address is reserved. Sign in with your password on the login page." },
+        { status: 403 }
+      );
+    }
 
     const name =
       typeof decoded.name === "string" && decoded.name.trim()

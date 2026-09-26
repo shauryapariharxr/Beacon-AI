@@ -46,7 +46,8 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb);
 }
 
-function configuredAdminEmail(): string {
+/** The registered admin email, normalized (trim + lowercase). */
+export function configuredAdminEmail(): string {
   return (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
 }
 
@@ -142,7 +143,14 @@ export async function getAdminSession(): Promise<{ email: string } | null> {
     // The scope check is what keeps an ordinary user session token (which has
     // no scope) from ever being accepted as an admin one.
     if (payload.scope !== ADMIN_SCOPE) return null;
-    return { email: String(payload.email ?? "") };
+    const email = String(payload.email ?? "");
+    // The token must name the CURRENTLY registered admin email. Without this
+    // a cookie minted before the operator rotated ADMIN_EMAIL (or removed a
+    // co-admin's address) would keep full panel access until its 8h expiry —
+    // the panel would then be reachable without the registered credentials.
+    const expected = configuredAdminEmail();
+    if (expected && email !== expected) return null;
+    return { email };
   } catch {
     return null;
   }

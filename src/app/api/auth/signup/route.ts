@@ -59,14 +59,25 @@ export async function POST(req: NextRequest) {
 
     const id = nanoid();
     const passwordHash = await hashPassword(password);
-    await db.insert(users).values({
-      id,
-      email: normalizedEmail,
-      passwordHash,
-      name: cleanName,
-      verifiedAt: Date.now(), // no email verification: accounts are active immediately
-      createdAt: Date.now(),
-    });
+    try {
+      await db.insert(users).values({
+        id,
+        email: normalizedEmail,
+        passwordHash,
+        name: cleanName,
+        verifiedAt: Date.now(), // no email verification: accounts are active immediately
+        createdAt: Date.now(),
+      });
+    } catch (insertErr: any) {
+      // Two simultaneous signups with the same email both pass the existence
+      // check above (check-then-insert race). The DB's unique constraint is
+      // the arbiter — surface it as the same "already exists" answer instead
+      // of an opaque 500.
+      if (insertErr?.code === "23505" || String(insertErr?.message || "").includes("duplicate key")) {
+        return NextResponse.json({ error: "An account with this email already exists" }, { status: 409 });
+      }
+      throw insertErr;
+    }
 
     // Mirror the account into Firebase Auth (best-effort) so Firebase
     // password-reset emails work for this user right away.

@@ -51,9 +51,14 @@ export async function DELETE(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // Delete messages first, then the conversation itself.
-    await db.delete(messages).where(eq(messages.conversationId, params.id));
-    await db.delete(conversations).where(eq(conversations.id, params.id));
+    // Delete messages first, then the conversation itself. Sequential awaits
+    // used to run these as two separate transactions: a crash between them
+    // (or a concurrent read) could see a conversation with no messages, or
+    // orphaned messages. One transaction makes removal all-or-nothing.
+    await db.transaction(async (tx) => {
+      await tx.delete(messages).where(eq(messages.conversationId, params.id));
+      await tx.delete(conversations).where(eq(conversations.id, params.id));
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {

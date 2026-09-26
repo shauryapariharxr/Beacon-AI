@@ -12,7 +12,6 @@ import {
   ChevronRight,
   FileText,
   HelpCircle,
-  Loader2,
   LogOut,
   MessageSquare,
   RefreshCw,
@@ -20,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import { ConfirmLogoutDialog } from "./ConfirmLogoutDialog";
+import { BeaconLoader } from "./BeaconLoader";
 import { useBackLogoutGuard } from "@/lib/useBackLogoutGuard";
 import { hardLogout } from "@/lib/hardLogout";
 
@@ -374,9 +374,10 @@ export function AdminPanel({
         {error && <div className="glass rounded-xl p-3 text-sm text-red-400 animate-toast-in">{error}</div>}
 
         {!selected && loading && !data && (
-          <div className="flex items-center justify-center gap-2 py-24 text-muted">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span className="text-sm">Loading site data…</span>
+          // The same Beacon loader as the rest of the app — site data can take
+          // a moment on a cold database, and a spinning cog says nothing.
+          <div className="flex flex-col items-center justify-center py-20">
+            <BeaconLoader size={72} label="Loading site data…" />
           </div>
         )}
 
@@ -446,9 +447,8 @@ export function AdminPanel({
             )}
 
             {detailLoading && questions === null ? (
-              <div className="flex items-center justify-center gap-2 py-16 text-muted">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span className="text-sm">Loading questions…</span>
+              <div className="flex flex-col items-center justify-center py-16">
+                <BeaconLoader size={64} label="Loading questions…" />
               </div>
             ) : (
               <div className={`space-y-2 ${detailLoading ? "opacity-60 transition-opacity" : ""}`}>
