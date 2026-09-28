@@ -23,6 +23,9 @@ export const users = pgTable("users", {
   // Set when the account was created through / linked to Firebase Auth
   // (Google sign-in or Firebase email/password). Null for legacy accounts.
   firebaseUid: text("firebase_uid"),
+  // Profile photo URL from the federated identity provider (Google/GitHub),
+  // synced on each provider sign-in. Null = render the initial.
+  avatarUrl: text("avatar_url"),
   // Kept for schema stability; new accounts are verified immediately on
   // signup (no email-verification step).
   verifiedAt: bigint("verified_at", { mode: "number" }),

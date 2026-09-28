@@ -33,6 +33,7 @@ export function DashboardClient() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -54,6 +55,7 @@ export function DashboardClient() {
       }
       setUserEmail(data.user.email);
       setUserName(data.user.name || "");
+      setAvatarUrl(data.user.avatarUrl ?? null);
       setChecking(false);
       loadConversations();
     })();
@@ -160,24 +162,25 @@ export function DashboardClient() {
         open={backConfirming}
         onCancel={() => settleBackGuard(false)}
         onConfirm={() => void logout()}
-      />
-      <Sidebar
-        conversations={conversations}
-        activeId={activeId}
-        onSelect={selectConversation}
-        onNewChat={newChat}
-        onDelete={deleteConversation}
-        userEmail={userEmail}
-        userName={userName}
-        mobileOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        onNavigate={() => setSidebarOpen(false)}
-      />
+      />        <Sidebar
+          conversations={conversations}
+          activeId={activeId}
+          onSelect={selectConversation}
+          onNewChat={newChat}
+          onDelete={deleteConversation}
+          userEmail={userEmail}
+          userName={userName}
+          avatarUrl={avatarUrl}
+          mobileOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          onNavigate={() => setSidebarOpen(false)}
+        />
       <div className="flex-1 min-w-0 h-full overflow-hidden">
         <ChatWindow
           isAuthed
           userEmail={userEmail}
           userName={userName}
+          avatarUrl={avatarUrl}
           onLogout={logout}
           onOpenSidebar={() => setSidebarOpen(true)}
           conversationId={activeId}

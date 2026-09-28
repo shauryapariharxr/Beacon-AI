@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
 import { BotAvatar } from "./BotAvatar";
+import { Avatar } from "./Avatar";
 import { ModelSelector } from "./ModelSelector";
 import { ConfirmLogoutDialog } from "./ConfirmLogoutDialog";
 import { MODELS, ModelKey } from "@/lib/models";
@@ -25,6 +26,7 @@ export function ChatWindow({
   isAuthed,
   userEmail,
   userName,
+  avatarUrl,
   onLogout,
   conversationId,
   initialMessages = [],
@@ -35,6 +37,7 @@ export function ChatWindow({
   isAuthed: boolean;
   userEmail?: string;
   userName?: string;
+  avatarUrl?: string | null;
   onLogout?: () => void;
   onOpenSidebar?: () => void;
   conversationId?: string;
@@ -406,9 +409,7 @@ export function ChatWindow({
                 onClick={() => setUserMenuOpen((v) => !v)}
                 className="flex items-center gap-1 hover:opacity-90 transition-opacity"
               >
-                <span className="w-8 h-8 rounded-full bg-lamp/90 text-[#1a1204] flex items-center justify-center text-sm font-semibold">
-                  {(displayName || "?")[0].toUpperCase()}
-                </span>
+                <Avatar url={avatarUrl} name={displayName} size={32} />
                 <ChevronDown className="w-3.5 h-3.5 text-muted" />
               </button>
               {userMenuOpen && (

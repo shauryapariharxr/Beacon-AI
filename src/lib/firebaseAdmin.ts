@@ -56,6 +56,17 @@ function getAdminApp(): App | null {
   return app;
 }
 
+/** Fetch a Firebase Auth user record by uid, or null when unavailable. */
+export async function getFirebaseUserByUid(uid: string) {
+  const a = getAdminApp();
+  if (!a) return null;
+  try {
+    return await getAuth(a).getUser(uid);
+  } catch {
+    return null;
+  }
+}
+
 /** Verify a Firebase ID token from the client. Returns null when unconfigured or invalid. */
 export async function verifyFirebaseIdToken(idToken: string): Promise<DecodedIdToken | null> {
   const a = getAdminApp();

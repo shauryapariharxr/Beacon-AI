@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Plus, MessageSquare, Trash2, X } from "lucide-react";
 import { ConfirmLogoutDialog } from "./ConfirmLogoutDialog";
+import { Avatar } from "./Avatar";
 import { hardLogout } from "@/lib/hardLogout";
 
 type Conversation = { id: string; title: string; createdAt: number };
@@ -17,6 +18,7 @@ export function Sidebar({
   onDelete,
   userEmail,
   userName,
+  avatarUrl,
   mobileOpen = false,
   onClose,
   onNavigate,
@@ -28,6 +30,7 @@ export function Sidebar({
   onDelete: (id: string) => void;
   userEmail: string;
   userName?: string;
+  avatarUrl?: string | null;
   mobileOpen?: boolean;
   onClose?: () => void;
   onNavigate?: () => void;
@@ -133,9 +136,7 @@ export function Sidebar({
         </div>
 
         <div className="p-3 pt-safe border-t border-white/[0.06] flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-lamp/90 text-[#1a1204] flex items-center justify-center text-sm font-semibold shrink-0">
-            {initial}
-          </div>
+          <Avatar url={avatarUrl} name={displayName} size={32} />
           <div className="min-w-0">
             <div className="text-sm text-ink truncate capitalize">{displayName}</div>
             <div className="text-xs text-muted truncate">{userEmail}</div>

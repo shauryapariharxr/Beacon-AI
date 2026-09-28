@@ -63,6 +63,13 @@ export async function POST(req: NextRequest) {
       typeof decoded.name === "string" && decoded.name.trim()
         ? decoded.name.trim().slice(0, 60)
         : email.split("@")[0];
+    // Profile photo from the identity provider (Google/GitHub). Firebase
+    // normalizes both providers' photo URLs into the token's `picture`
+    // claim, so one field covers every federated provider.
+    const picture =
+      typeof decoded.picture === "string" && decoded.picture.startsWith("https://")
+        ? decoded.picture.slice(0, 2048)
+        : null;
 
     const existingRows = await db.select().from(users).where(eq(users.email, email));
     let user = existingRows[0];
@@ -87,9 +94,12 @@ export async function POST(req: NextRequest) {
 
       // Link the Firebase identity to the existing local account; fill in
       // the name for legacy accounts created before the name field existed.
-      if (user.firebaseUid !== decoded.uid || !user.name) {
+      // The avatar re-syncs on every provider sign-in so a photo changed on
+      // Google/GitHub shows up here on the next login.
+      if (user.firebaseUid !== decoded.uid || !user.name || picture !== (user.avatarUrl ?? null)) {
         const updates: Partial<typeof users.$inferInsert> = { firebaseUid: decoded.uid };
         if (!user.name) updates.name = name;
+        if (picture) updates.avatarUrl = picture;
         await db.update(users).set(updates).where(eq(users.id, user.id));
         user = { ...user, ...updates } as typeof users.$inferSelect;
       }
@@ -104,6 +114,7 @@ export async function POST(req: NextRequest) {
         passwordHash: unusableHash,
         name,
         firebaseUid: decoded.uid,
+        avatarUrl: picture,
         verifiedAt: Date.now(),
         createdAt: Date.now(),
       });
