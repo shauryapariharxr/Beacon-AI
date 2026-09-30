@@ -22,27 +22,43 @@ export function Avatar({
   className?: string;
 }) {
   const initial = ((name && name.trim()) || "?")[0].toUpperCase();
+  // Remote photos load through our own /api/avatar proxy: some browsers
+  // (ad-blockers, privacy extensions, DNS filters) block Google's/GitHub's
+  // CDNs directly, which silently broke the avatar even though the sync
+  // worked. Same-origin request → the browser rule never fires. onError
+  // gives the direct CDN URL one second chance before falling back.
+  const proxied =
+    url && /^https?:\/\//.test(url)
+      ? `/api/avatar?u=${encodeURIComponent(url)}`
+      : url;
   return (
     <span
       className={`relative inline-flex shrink-0 items-center justify-center rounded-full bg-lamp/90 text-[#1a1204] font-semibold overflow-hidden align-middle ${className}`}
       style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
       aria-hidden="true"
     >
-      {url ? (
+      {proxied ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={url}
+          src={proxied}
           alt=""
           className="absolute inset-0 z-10 w-full h-full object-cover"
           onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = "none";
+            const img = e.currentTarget as HTMLImageElement;
+            const src = img.getAttribute("src") ?? "";
+            if (src.startsWith("/api/avatar?u=")) {
+              // Proxy failed → try the CDN directly once before giving up.
+              img.src = decodeURIComponent(src.slice("/api/avatar?u=".length));
+              return;
+            }
+            img.style.display = "none";
           }}
         />
       ) : null}
       {/* The initial sits UNDER the photo (z-order below): visible when no
           URL or on error, always the correct fallback without extra state. */}
       <span className="relative">{initial}</span>
-      {url ? <span className="absolute inset-0 z-20 rounded-full ring-1 ring-black/15" /> : null}
+      {proxied ? <span className="absolute inset-0 z-20 rounded-full ring-1 ring-black/15" /> : null}
     </span>
   );
 }
