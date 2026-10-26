@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
-import { getSessionUserId } from "@/lib/auth";
+import { getSessionInfo, createSessionToken, sessionCookieOptions, SESSION_REFRESH_WINDOW_MS } from "@/lib/auth";
 import { getFirebaseUserByUid, isFirebaseAdminConfigured } from "@/lib/firebaseAdmin";
 
 export async function GET() {
-  const userId = await getSessionUserId();
+  const { userId, issuedAtMs } = await getSessionInfo();
   if (!userId) return NextResponse.json({ user: null });
 
   const rows = await db.select().from(users).where(eq(users.id, userId));
@@ -35,10 +35,22 @@ export async function GET() {
     }
   }
 
+  // 30-day absolute sessions sent users back to the login page monthly. A
+  // session older than (30 days - window) is refreshed to a full new window
+  // here — /me runs on every app open, so active users never re-authenticate.
+  const sessionAgeMs = issuedAtMs != null ? Date.now() - issuedAtMs : null;
+  const shouldRefresh =
+    sessionAgeMs != null && sessionAgeMs > 30 * 24 * 60 * 60 * 1000 - SESSION_REFRESH_WINDOW_MS;
+
   // no-store: the avatar/name live here, and a heuristically-cached copy
   // would keep showing stale profile data after a re-login.
-  return NextResponse.json(
+  const res = NextResponse.json(
     { user: { id: user.id, email: user.email, name: user.name ?? null, avatarUrl: user.avatarUrl ?? null } },
     { headers: { "Cache-Control": "private, no-store, max-age=0" } }
   );
+  if (shouldRefresh) {
+    const token = await createSessionToken(userId);
+    res.cookies.set("session", token, sessionCookieOptions());
+  }
+  return res;
 }

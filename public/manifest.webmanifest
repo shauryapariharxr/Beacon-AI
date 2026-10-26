@@ -3,7 +3,7 @@
   "short_name": "BeaconAI",
   "description": "Ask a question, get an answer instantly — no signup needed. Beacon is a free AI study companion for students and developers, with optional accounts to save your chat history.",
   "id": "/",
-  "start_url": "/?source=pwa",
+  "start_url": "/login?source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",

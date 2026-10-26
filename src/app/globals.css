@@ -193,44 +193,126 @@ h1, h2, h3, h4, h5, h6 {
   animation: beacon-blink 1.4s ease-in-out infinite;
 }
 
-/* Loading screen: the Beacon mark on its amber disc in the centre, while
-   three amber arcs "breathe" around it — three 120° pie wedges that merge
-   into a full disc, expand apart, rotate 180° and snap back (the classic
-   conic-gradient aperture loader, recoloured to Beacon amber).
+/* ---------- Liquid-fill loader (src/components/BeaconLoader.tsx) ----------
 
-   How the aperture works: each wedge is a conic-gradient layer with a FIXED
-   background-size (--loader-size). Animating `inset` grows the ::before box
-   while the layers stay put, so the three wedges — anchored top-right,
-   bottom and top-left — separate instead of zooming, opening gaps between
-   them. Contracting merges them back into one disc behind the logo. */
-.beacon-loader {
+   The Beacon mark as a vessel filling with brand-amber liquid. The stage's
+   mask is the 512px logo PNG: its alpha channel (the mark, ~84% of the
+   canvas) clips every child to the glyph, so the water surface, waves and
+   ghost tint can never leak outside the shape. An UNMASKED halo div behind
+   the stage provides the glow, since a blur baked inside the mask would be
+   clipped flat. */
+
+.beacon-liquid-stage {
   position: relative;
+  /* Scaled by the component via --liquid-stage (defaults just in case). */
+  --liquid-stage: 64px;
 }
 
-.beacon-loader::before {
-  content: "";
+.beacon-liquid-halo {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  --arc: #0000, #e8a33d 1deg 120deg, #0000 121deg;
-  background:
-    conic-gradient(from 0deg, var(--arc)) top right,
-    conic-gradient(from 120deg, var(--arc)) bottom,
-    conic-gradient(from 240deg, var(--arc)) top left;
-  background-size: var(--loader-size) var(--loader-size);
-  background-repeat: no-repeat;
-  animation: beacon-breathe 2s infinite cubic-bezier(0.3, 1, 0, 1);
+  /* Soft amber cloud centred on the mark, breathing with the fill rise. */
+  background: radial-gradient(
+    closest-side,
+    rgba(232, 163, 61, 0.35),
+    rgba(232, 163, 61, 0.10) 62%,
+    transparent 78%
+  );
+  filter: blur(calc(var(--liquid-stage) * 0.06));
+  animation: beacon-liquid-halo 2.8s ease-in-out infinite;
   pointer-events: none;
 }
 
-@keyframes beacon-breathe {
-  33%  { inset: calc(var(--loader-size) * -0.2); transform: rotate(0deg); }
-  66%  { inset: calc(var(--loader-size) * -0.2); transform: rotate(180deg); }
-  100% { inset: 0; transform: rotate(180deg); }
+@keyframes beacon-liquid-halo {
+  /* Rises with the water, brightest at the hold, dim while drained. */
+  0%, 100% { opacity: 0.35; transform: scale(0.92); }
+  38%      { opacity: 1; transform: scale(1.04); }
+  58%      { opacity: 0.9; transform: scale(1.0); }
+  78%      { opacity: 0.45; transform: scale(0.93); }
 }
 
-.beacon-loader-core {
-  position: relative;
+.beacon-fill-vessel {
+  position: absolute;
+  inset: 0;
+  -webkit-mask-image: url("/pwa-icon-512.png");
+  mask-image: url("/pwa-icon-512.png");
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+/* The empty vessel: faint amber tint so the silhouette reads before the
+   liquid arrives. */
+.beacon-fill-ghost {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(232, 163, 61, 0.16),
+    rgba(232, 163, 61, 0.05)
+  );
+}
+
+/* The liquid body. Height animates through rise → hold → drain → start.
+   ease-in-out on each rise keeps the liquid physics believable. */
+.beacon-fill-water {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 8%;
+  background: linear-gradient(
+    180deg,
+    #f9d976 0%,
+    #f0b429 34%,
+    #c9750a 78%,
+    #94510a 100%
+  );
+  animation: beacon-fill-rise 2.8s ease-in-out infinite;
+}
+
+@keyframes beacon-fill-rise {
+  /* One continuous loop with no container fade needed: rise (eased, like
+     liquid physics), settle-bob, drain, and back to the start level. */
+  0%   { height: 8%; }
+  38%  { height: 88%; }
+  58%  { height: 82%; }
+  78%  { height: 14%; }
+  100% { height: 8%; }
+}
+
+/* Wave surface: two wide, very-flat ellipses riding the top edge of the
+   water, translating horizontally in opposite directions at different
+   speeds. Their overlap breaks the straight rectangle edge into a wave.
+   They anchor to the water's own top edge, so they ride the rise/drain. */
+.beacon-fill-wave {
+  position: absolute;
+  top: calc(var(--liquid-stage) * -0.05);
+  height: calc(var(--liquid-stage) * 0.1);
+  width: 200%;
+  left: -50%;
+  border-radius: 50%;
+  background: #f0b429;
+}
+
+.beacon-fill-wave--front {
+  opacity: 1;
+  animation: beacon-fill-wave-x 3.2s linear infinite;
+}
+
+.beacon-fill-wave--back {
+  opacity: 0.75;
+  transform: translateX(6%);
+  animation: beacon-fill-wave-x 4.6s linear infinite reverse;
+}
+
+@keyframes beacon-fill-wave-x {
+  from { transform: translateX(0); }
+  to   { transform: translateX(25%); }
 }
 
 /* Thinking dots animation — bounces each dot up */
@@ -334,6 +416,19 @@ h1, h2, h3, h4, h5, h6 {
   .animate-fade-up,
   .animate-toast-in {
     animation: none !important;
+  }
+  /* The liquid loader settles full and calm instead of sloshing. */
+  .beacon-fill-water {
+    animation: none;
+    height: 100%;
+  }
+  .beacon-fill-water .beacon-fill-wave {
+    animation: none;
+    transform: translateX(0);
+  }
+  .beacon-liquid-halo {
+    animation: none;
+    opacity: 0.85;
   }
 }
 

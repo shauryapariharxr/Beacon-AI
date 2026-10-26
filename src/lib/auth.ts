@@ -4,6 +4,11 @@ import { cookies } from "next/headers";
 
 const COOKIE_NAME = "session";
 
+// Refresh the session cookie once this much of its 30-day validity remains.
+// With /me sliding-refreshing on every authenticated call, an app opened
+// even monthly never sees a login screen again.
+export const SESSION_REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 export function getJwtSecret(): Uint8Array {
   const value = process.env.JWT_SECRET;
   if (!value || value.length < 32) {
@@ -55,6 +60,24 @@ export async function createSession(userId: string) {
 
 export function clearSession() {
   cookies().delete(COOKIE_NAME);
+}
+
+export async function getSessionInfo(): Promise<{
+  userId: string | null;
+  issuedAtMs: number | null;
+}> {
+  const token = cookies().get(COOKIE_NAME)?.value;
+  if (!token) return { userId: null, issuedAtMs: null };
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    const issuedAt = payload.iat;
+    return {
+      userId: (payload.userId as string) ?? null,
+      issuedAtMs: typeof issuedAt === "number" ? issuedAt * 1000 : null,
+    };
+  } catch {
+    return { userId: null, issuedAtMs: null };
+  }
 }
 
 export async function getSessionUserId(): Promise<string | null> {
