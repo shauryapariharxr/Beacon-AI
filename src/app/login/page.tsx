@@ -72,6 +72,31 @@ export default function LoginPage() {
   }
 
   const sessionCheckRef = useRef(false);
+  /**
+   * Inside-app context. Two signals:
+   *   - `?source=pwa`: arriving from the manifest start_url of a fresh install.
+   *   - display-mode: standalone — the installed app window itself, which
+   *     survives the handoff redirect from `?source=pwa` (the launch redirect
+   *     REPLACES history, so the query is gone by the time /login renders).
+   *
+   * Inside the app there is no meaningful "home" to go back to — the login
+   * page IS the app's launch surface — so the landing-page escape hatch is
+   * hidden and the ambient background shows instead. The plain browser site
+   * keeps both exactly as before.
+   */
+  const [insideApp, setInsideApp] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(display-mode: standalone)");
+    const update = () =>
+      setInsideApp(
+        mq.matches ||
+        new URLSearchParams(window.location.search).get("source") === "pwa"
+      );
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
+
   useEffect(() => {
     if (sessionCheckRef.current) return;
     sessionCheckRef.current = true;
@@ -200,10 +225,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen px-4 py-12 gap-8">
+    <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 py-12 gap-8">
       {/* Way home when you landed here by accident. The card's own "Continue
           without account" goes to chat; this goes to the landing page.
-          Pinned to the viewport's top-left corner, clear of the centered card. */}
+          Pinned to the viewport's top-left corner, clear of the centered card.
+          Hidden inside the installed app: there is no "home" to return to. */}
+      {!insideApp && (
       <Link
         href="/"
         className="fixed top-4 z-10 flex items-center gap-1.5 text-sm text-muted hover:text-ink transition-colors animate-fade-up bg-bg/80 rounded-lg px-2 py-1"
@@ -212,13 +239,40 @@ export default function LoginPage() {
         <ArrowLeft className="w-4 h-4 shrink-0" />
         <span>Back to home</span>
       </Link>
+      )}
 
       <div className="text-center animate-fade-up" style={{ animationDelay: "60ms" }}>
         <h1 className="font-serif font-bold text-4xl text-ink">Welcome back</h1>
         <p className="text-muted mt-2">Continue where you left off.</p>
       </div>
 
-      <form onSubmit={submit} className="w-full max-w-sm glass-strong rounded-2xl p-6 space-y-4 animate-fade-up" style={{ animationDelay: "120ms" }}>
+      <div className="relative isolate w-fit max-w-full overflow-hidden rounded-2xl">
+        {/* Ambient theme, scoped to the immediate area behind the login card
+            only: the wrapper clips (isolation + overflow) every layer to the
+            card's own rectangle, and the frosted glass on the card blurs the
+            light moving behind it. */}
+        {insideApp && (
+          <div className="login-ambient login-ambient--card" aria-hidden="true">
+            <div className="login-ambient-blob login-ambient-blob--one" />
+            <div className="login-ambient-blob login-ambient-blob--two" />
+            <div className="login-ambient-sweep" />
+            <div className="login-ambient-sparks">
+              {Array.from({ length: 12 }, (_, i) => (
+                <span
+                  key={i}
+                  className="login-ambient-spark"
+                  style={{
+                    left: `${(i * 73) % 100}%`,
+                    animationDelay: `${((i * 1.37) % 9).toFixed(2)}s`,
+                    animationDuration: `${(11 + (i % 5) * 2.2).toFixed(2)}s`,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+      <form onSubmit={submit} className="relative w-full max-w-sm glass-strong rounded-2xl p-6 space-y-4 animate-fade-up" style={{ animationDelay: "120ms" }}>
         {error && <div className="text-sm text-red-400 animate-toast-in">{error}</div>}
         {info && (
           <div className="text-sm text-green-400 animate-toast-in flex items-start gap-1.5">
@@ -314,6 +368,7 @@ export default function LoginPage() {
           Continue without account
         </Link>
       </form>
+      </div>
 
       {/* Matches the wording of the same call to action on the landing page,
           rather than a second, different label for the same destination. */}

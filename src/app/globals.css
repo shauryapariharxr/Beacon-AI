@@ -1,5 +1,11 @@
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 
+@property --login-sweep {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -181,6 +187,187 @@ h1, h2, h3, h4, h5, h6 {
 
 .prose :where(tbody tr):not(:where([class~="not-prose"], [class~="not-prose"], [class~="not-prose"] *)) {
   border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ---------- Login page ambient background (installed-app context only) ----------
+
+   The launch surface of the installed app: a dark room lit by the beacon.
+   Three cheap layers, all transform/opacity/gradient work (no filter, no
+   canvas): two slowly drifting amber glows, a lighthouse beam sweeping from
+   above the fold once every 30s (conic gradient animated via the registered
+   --login-sweep custom property), and a handful of loose embers rising and
+   fading off the bottom edge. Everything sits behind the content
+   (pointer-events: none). */
+
+.login-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Layer 1: the glows. Pre-blurred radial gradients instead of filter: blur,
+   so nothing recomposites on scroll. */
+.login-ambient-blob {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.login-ambient-blob--one {
+  width: 60vmax;
+  height: 60vmax;
+  top: -22vmax;
+  left: -14vmax;
+  background: radial-gradient(
+    closest-side,
+    rgba(240, 180, 65, 0.13),
+    rgba(240, 180, 65, 0.05) 55%,
+    transparent 72%
+  );
+  animation: login-ambient-drift-a 22s ease-in-out infinite alternate;
+}
+
+.login-ambient-blob--two {
+  width: 52vmax;
+  height: 52vmax;
+  bottom: -20vmax;
+  right: -16vmax;
+  background: radial-gradient(
+    closest-side,
+    rgba(201, 117, 10, 0.12),
+    rgba(201, 117, 10, 0.04) 55%,
+    transparent 72%
+  );
+  animation: login-ambient-drift-b 26s ease-in-out infinite alternate;
+}
+
+@keyframes login-ambient-drift-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(7vmax, 5vmax, 0) scale(1.14); }
+}
+
+@keyframes login-ambient-drift-b {
+  from { transform: translate3d(0, 0, 0) scale(1.08); }
+  to   { transform: translate3d(-6vmax, -4vmax, 0) scale(0.96); }
+}
+
+/* Layer 2: the lighthouse beam. A conic wedge pivoting on a point above the
+   viewport top-center; the registered custom property lets the angle
+   interpolate smoothly in Chromium (and every PWA host). Kept whisper-quiet
+   at 4-8% alpha — felt, not watched. */
+.login-ambient-sweep {
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    from var(--login-sweep) at 50% -28%,
+    transparent 0deg,
+    rgba(232, 163, 61, 0.02) 14deg,
+    rgba(232, 163, 61, 0.08) 24deg,
+    rgba(233, 180, 90, 0.04) 34deg,
+    transparent 44deg
+  );
+  animation: login-ambient-sweep 30s linear infinite;
+}
+
+@keyframes login-ambient-sweep {
+  to { --login-sweep: 360deg; }
+}
+
+/* Layer 3: embers — tiny amber sparks rising from the bottom edge, staggered
+   by inline animation-delay/duration from the component. */
+.login-ambient-sparks,
+.login-ambient-spark {
+  position: absolute;
+}
+
+.login-ambient-spark {
+  bottom: -2%;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: #f2c17b;
+  box-shadow: 0 0 6px 1px rgba(232, 163, 61, 0.5);
+  opacity: 0;
+  animation: login-ambient-rise linear infinite;
+}
+
+/* Every third ember is a mote of different mass. */
+.login-ambient-spark:nth-child(3n) {
+  width: 4px;
+  height: 4px;
+  box-shadow: 0 0 8px 2px rgba(232, 163, 61, 0.45);
+}
+
+.login-ambient-spark:nth-child(4n) {
+  width: 2px;
+  height: 2px;
+  box-shadow: 0 0 4px 1px rgba(232, 163, 61, 0.4);
+}
+
+@keyframes login-ambient-rise {
+  0%   { transform: translate3d(0, 0, 0); opacity: 0; }
+  10%  { opacity: 0.7; }
+  55%  { transform: translate3d(3vw, -42vh, 0); }
+  88%  { opacity: 0.2; }
+  100% {
+    transform: translate3d(5vw, -104vh, 0);
+    opacity: 0;
+  }
+}
+
+/* Card-scoped variant. The page-level launch context is gone; the ambient
+   now lives INSIDE the login-card wrapper (absolute, clipped by the
+   wrapper's overflow + isolation to the card rectangle), so the frost of
+   .glass-strong blurs whatever moves behind it. Blob geometry is
+   re-scaled from vmax to percentages of the card. */
+.login-ambient--card {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.login-ambient--card .login-ambient-blob {
+  width: 160%;
+  height: 160%;
+}
+
+.login-ambient--card .login-ambient-blob--one {
+  width: 170%;
+  height: 170%;
+  top: -62%;
+  left: -38%;
+}
+
+.login-ambient--card .login-ambient-blob--two {
+  width: 150%;
+  height: 150%;
+  bottom: -58%;
+  right: -34%;
+}
+
+.login-ambient--card .login-ambient-sweep {
+  background: conic-gradient(
+    from var(--login-sweep) at 50% -22%,
+    transparent 0deg,
+    rgba(232, 163, 61, 0.02) 14deg,
+    rgba(232, 163, 61, 0.09) 24deg,
+    rgba(233, 180, 90, 0.04) 34deg,
+    transparent 44deg
+  );
+}
+
+/* Reduced motion: the room stays lit, nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .login-ambient-sweep,
+  .login-ambient-blob--one,
+  .login-ambient-blob--two,
+  .login-ambient-spark {
+    animation: none !important;
+  }
+  .login-ambient-spark {
+    opacity: 0;
+  }
 }
 
 /* Blinking beacon logo for loading screens — plain opacity flash, no glow */
