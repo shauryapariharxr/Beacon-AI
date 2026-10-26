@@ -11,7 +11,7 @@
  *     dinosaur error.
  */
 
-const VERSION = "beacon-v1";
+const VERSION = "beacon-v3";
 const ASSET_CACHE = `${VERSION}-assets`;
 const PAGE_CACHE = `${VERSION}-pages`;
 

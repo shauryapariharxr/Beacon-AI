@@ -4,8 +4,8 @@ import { PWARegister } from "@/components/PWARegister";
 
 export const metadata: Metadata = {
   title: {
-    default: "Beacon — Your free AI study buddy",
-    template: "%s | Beacon",
+    default: "BeaconAI — Your free AI study buddy",
+    template: "%s | BeaconAI",
   },
   description:
     "Ask a question, get an answer instantly — no signup needed. Beacon is a free AI study companion for students and developers, with optional accounts to save your chat history.",
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Beacon",
+    title: "BeaconAI",
     statusBarStyle: "black-translucent",
   },
   openGraph: {

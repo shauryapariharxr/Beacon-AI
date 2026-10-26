@@ -7,28 +7,31 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 const svg = readFileSync("public/logo.svg");
 
-// The beacon mark is glow-light on transparent, so every icon variant sits on
-// the app's near-black page tone — same as the favicon in the browser.
+// Maskable/apple-touch variants sit on the app's near-black page tone. The
+// plain "any" icons keep a FULLY TRANSPARENT background instead: in a
+// Chromium-backed installed app Windows uses them for the taskbar, and a tiled
+// opaque square reads visibly different from the dark taskbar surface.
 const BG = "#0a0a0b";
+const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
 
 // The source SVG is declared in "pt" units, which librsvg rasterizes at 96dpi
 // (~1672px). Normalize ONCE to a plain 1024px base image and build every
 // variant from that buffer, so no variant ever sees the oversized original.
 const base = await sharp(svg).resize(1024, 1024).png().toBuffer();
 
-async function centeredMark(canvas, inner) {
+async function centeredMark(canvas, inner, background = BG) {
   const mark = await sharp(base).resize(inner, inner).png().toBuffer();
   const top = Math.round((canvas - inner) / 2);
   return sharp({
-    create: { width: canvas, height: canvas, channels: 4, background: BG },
+    create: { width: canvas, height: canvas, channels: 4, background },
   })
     .composite([{ input: mark, top, left: top }])
     .png()
     .toBuffer();
 }
 
-// Regular icons keep a small transparent margin (launcher-icon look).
-const any1024 = await centeredMark(1024, 860);
+// Regular icons keep a transparent margin (launcher-icon look).
+const any1024 = await centeredMark(1024, 860, TRANSPARENT);
 const icon192 = await sharp(any1024).resize(192, 192).png().toBuffer();
 const icon512 = await sharp(any1024).resize(512, 512).png().toBuffer();
 
