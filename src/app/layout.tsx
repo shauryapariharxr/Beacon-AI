@@ -4,7 +4,7 @@ import { PWARegister } from "@/components/PWARegister";
 
 export const metadata: Metadata = {
   title: {
-    default: "BeaconAI — Your free AI study buddy",
+    default: "BeaconAI",
     template: "%s | BeaconAI",
   },
   description:
@@ -22,15 +22,15 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
   },
   openGraph: {
-    title: "Beacon — Your free AI study buddy",
+    title: "BeaconAI — Your free AI study buddy",
     description:
       "Ask anything, get instant answers. No signup needed — free forever, powered by fast open models.",
     type: "website",
-    siteName: "Beacon",
+    siteName: "BeaconAI",
   },
   twitter: {
     card: "summary",
-    title: "Beacon — Your free AI study buddy",
+    title: "BeaconAI — Your free AI study buddy",
     description: "Ask anything, get instant answers. No signup needed.",
   },
 };
