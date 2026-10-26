@@ -29,6 +29,7 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
     "remark-gfm": "^4.0.1",
+    "together-ai": "^0.58.0",
     "unpdf": "^1.8.1"
   },
   "overrides": {
@@ -42,6 +43,7 @@
     "autoprefixer": "^10.4.19",
     "drizzle-kit": "^0.24.2",
     "postcss": "^8.4.39",
+    "sharp": "^0.35.5",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.5.3"
   }

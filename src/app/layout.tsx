@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { PWARegister } from "@/components/PWARegister";
 
 export const metadata: Metadata = {
   title: {
@@ -12,6 +13,13 @@ export const metadata: Metadata = {
   authors: [{ name: "Shaurya Parihar" }],
   icons: {
     icon: "/logo.svg",
+    apple: "/apple-touch-icon.png",
+  },
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Beacon",
+    statusBarStyle: "black-translucent",
   },
   openGraph: {
     title: "Beacon — Your free AI study buddy",
@@ -41,7 +49,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-bg text-ink antialiased">{children}</body>
+      <body className="min-h-screen bg-bg text-ink antialiased">
+        <PWARegister />
+        {children}
+      </body>
     </html>
   );
 }
