@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, Fragment, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { ChevronDown, Check, Minus, Maximize2, Minimize2 } from "lucide-react";
@@ -141,7 +142,22 @@ function OnlineBadge() {
 }
 
 export default function HomePage() {
+  const router = useRouter();
   const [demoMaximized, setDemoMaximized] = useState(false);
+
+  // Installed-app launch handoff. A PWA opens its start_url every launch, so
+  // before the manifest gained /login (and for installs made before it did)
+  // the app falls here with either ?source=pwa or display-mode: standalone.
+  // The landing page is the website's home — in the app-shaped window it just
+  // reads wrong — so an installed context skips straight to the login flow,
+  // which routes signed-in users to /dashboard. Normal browser visitors hit
+  // neither condition and see the landing page exactly as before.
+  useEffect(() => {
+    const insideApp =
+      new URLSearchParams(window.location.search).get("source") === "pwa" ||
+      window.matchMedia("(display-mode: standalone)").matches;
+    if (insideApp) router.replace("/login");
+  }, [router]);
 
   // FLIP animation for maximize/minimize: capture the demo box's on-screen
   // rectangle before the layout change, then after React re-renders it as
