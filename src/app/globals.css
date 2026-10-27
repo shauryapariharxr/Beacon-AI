@@ -333,28 +333,78 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .login-ambient--card .login-ambient-blob--one {
-  width: 170%;
-  height: 170%;
-  top: -62%;
-  left: -38%;
+  background: radial-gradient(
+    closest-side,
+    rgba(240, 180, 65, 0.16),
+    rgba(240, 180, 65, 0.06) 55%,
+    transparent 74%
+  );
 }
 
 .login-ambient--card .login-ambient-blob--two {
-  width: 150%;
-  height: 150%;
-  bottom: -58%;
-  right: -34%;
+  background: radial-gradient(
+    closest-side,
+    rgba(201, 117, 10, 0.15),
+    rgba(201, 117, 10, 0.05) 55%,
+    transparent 74%
+  );
+}
+
+.login-ambient--card .login-ambient-blob--one {
+  width: 200%;
+  height: 200%;
+  top: -88%;
+  left: -50%;
+}
+
+.login-ambient--card .login-ambient-blob--two {
+  width: 180%;
+  height: 180%;
+  bottom: -78%;
+  right: -40%;
 }
 
 .login-ambient--card .login-ambient-sweep {
-  background: conic-gradient(
-    from var(--login-sweep) at 50% -22%,
-    transparent 0deg,
-    rgba(232, 163, 61, 0.02) 14deg,
-    rgba(232, 163, 61, 0.09) 24deg,
-    rgba(233, 180, 90, 0.04) 34deg,
-    transparent 44deg
-  );
+  /* The conic light-wheel is disabled on the card: wedges of uneven
+     brightness sliding behind frosted glass read as a lumpy, weird pulse.
+     The card breathes with a single uniform glow instead (below), which
+     looks intentional rather than glitchy. */
+  display: none;
+}
+
+/* The card's one motion: a soft, UNIFORM breath. Opacity only — no scale,
+   no translation, no rotation — so the light rises and falls evenly behind
+   the frosted glass like a lamp dimming, never like the card throbbing. */
+.login-ambient--card .login-ambient-blob--one {
+  animation: login-ambient-card-glow 7s ease-in-out infinite alternate;
+}
+
+@keyframes login-ambient-card-glow {
+  from { opacity: 0.6; }
+  to   { opacity: 1; }
+}
+
+/* Card-scoped motion. The page-level keyframes translate in vmax/vh units
+   (viewport-proportioned distances), which inside a card-sized wrapper —
+   especially the narrow installed-app window — read as the whole card
+   throbbing. So the card glows never drift or scale; the only breathing is
+   the uniform opacity fade defined above, plus the embers. The card rise
+   animates `bottom` — a percentage of the CARD's height, so the embers
+   drift the full card whatever its size. */
+.login-ambient--card .login-ambient-blob--two {
+  animation: none;
+}
+
+.login-ambient--card .login-ambient-spark {
+  animation-name: login-ambient-card-rise;
+}
+
+@keyframes login-ambient-card-rise {
+  0%   { bottom: -4%; transform: translate3d(0, 0, 0); opacity: 0; }
+  10%  { opacity: 0.85; }
+  55%  { transform: translate3d(5px, 0, 0); }
+  88%  { opacity: 0.3; }
+  100% { bottom: 104%; transform: translate3d(12px, 0, 0); opacity: 0; }
 }
 
 /* Reduced motion: the room stays lit, nothing moves. */
