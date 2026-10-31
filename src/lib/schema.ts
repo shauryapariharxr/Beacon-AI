@@ -48,6 +48,22 @@ export const messages = pgTable("messages", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
+// ---------- Image generation ----------
+
+// Base64 image bodies looked up by /api/images/[id]. Keeping the binary out
+// of the `messages` row keeps conversation payloads small (a single generated
+// image is ~1–2 MB; stuffing it into the message content would ship it to
+// every messages-list API call and history fetch).
+export const images = pgTable("images", {
+  id: text("id").primaryKey(),
+  // Conversation whose messages reference this image — ownership is checked
+  // through this join so one signed-in user can't read another's images.
+  conversationId: text("conversation_id").notNull(),
+  mimeType: text("mime_type").notNull().default("image/png"),
+  data: text("data").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
+
 // ---------- RAG ----------
 
 export const documents = pgTable("documents", {

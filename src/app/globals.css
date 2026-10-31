@@ -376,11 +376,11 @@ h1, h2, h3, h4, h5, h6 {
    no translation, no rotation — so the light rises and falls evenly behind
    the frosted glass like a lamp dimming, never like the card throbbing. */
 .login-ambient--card .login-ambient-blob--one {
-  animation: login-ambient-card-glow 7s ease-in-out infinite alternate;
+  animation: login-ambient-card-glow 9s ease-in-out infinite alternate;
 }
 
 @keyframes login-ambient-card-glow {
-  from { opacity: 0.6; }
+  from { opacity: 0.25; }
   to   { opacity: 1; }
 }
 

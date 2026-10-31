@@ -21,6 +21,12 @@ import {
 } from "@/lib/providers";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
 import {
+  isImageGenRequest,
+  hasImageProvider,
+  generateImage,
+} from "@/lib/images";
+import { images } from "@/lib/schema";
+import {
   retrieveDocumentContext,
   retrieveMemoryContext,
   buildDocumentContextBlock,
@@ -230,13 +236,120 @@ export async function POST(req: NextRequest) {
             content: m.content.slice(0, MAX_MESSAGE_LENGTH),
           }))
       : [];
+    // Strip inline image data URLs before history is echoed back to the
+    // provider — a 2MB base64 payload in a follow-up turn ("make it blue")
+    // would stretch request bodies past safe limits. The image URL itself is
+    // http(s) only for signed-in users, so guests lose nothing real.
     history = history.filter((m) => m.content !== message);
+    history = history.map((m) =>
+      m.role === "assistant"
+        ? { ...m, content: m.content.replace(/!\[[^\]]*\]\(data:[^)]+\)/g, "*(generated image omitted)*") }
+        : m
+    );
     history.push({ role: "user", content: message });
   }
 
   // Detected once, used for the prompt rules, the per-turn language directive,
   // and the temperature choice.
   const replyLang = detectReplyLang(message);
+
+  // ---------- Image generation (Gemini) ----------
+  // An upfront picture request ("draw a water cycle poster for class 7") is
+  // routed out of the regular chat providers before they claim their rate
+  // limit or start streaming early prose. The image is produced, saved, and
+  // returned as a small markdown payload that the client already renders.
+  if (isImageGenRequest(message) && hasImageProvider()) {
+    const cleanUp = async () => {
+      if (!userId || !userMessageId || !convoId) return;
+      try {
+        await db.delete(messages).where(and(eq(messages.conversationId, convoId), eq(messages.id, userMessageId)));
+        if (createdConversation) await db.delete(conversations).where(eq(conversations.id, convoId));
+      } catch (err) {
+        console.error("Image path rollback failed:", err);
+      }
+    };
+
+    try {
+      const img = await generateImage(message);
+      // Signed-in: store the binary in its own table and reference it; the
+      // message keeps only a small markdown string (history reloads stay
+      // lightweight). Guests get a data URL inline — nothing is stored.
+      let markdown: string;
+      if (userId && convoId) {
+        const imageId = nanoid();
+        await db.insert(images).values({
+          id: imageId,
+          conversationId: convoId,
+          mimeType: img.mimeType,
+          data: img.base64,
+          createdAt: Date.now(),
+        });
+        markdown = `![Beacon generated image](/api/images/${imageId})${img.text ? `\n\n${img.text}` : ""}`;
+      } else {
+        markdown = `![Beacon generated image](data:${img.mimeType};base64,${img.base64})${img.text ? `\n\n${img.text}` : ""}`;
+      }
+
+      // One-shot reply — no tokens to trickle. The instrumented stream shape
+      // matches the chat path below so the client's reader works untouched.
+      let persisted = false;
+      const stream = new ReadableStream({
+        /**
+         * Persisting the markdown message itself, mirroring persistReply in
+         * the normal branch so switch/reload behavior matches up to the byte.
+         */
+        async start(controller) {
+          controller.enqueue(new TextEncoder().encode(markdown));
+          if (persisted) return;
+          persisted = true;
+          if (userId && convoId && markdown.trim()) {
+            try {
+              await db.insert(messages).values({
+                id: nanoid(),
+                conversationId: convoId,
+                role: "assistant",
+                content: markdown,
+                createdAt: Date.now(),
+              });
+            } catch (err) {
+              console.error("Failed to save image reply:", err);
+            }
+          }
+          controller.close();
+        },
+        async cancel() {
+          if (persisted) return;
+          persisted = true;
+          if (userId && convoId && markdown.trim()) {
+            try {
+              await db.insert(messages).values({
+                id: nanoid(),
+                conversationId: convoId,
+                role: "assistant",
+                content: markdown,
+                createdAt: Date.now(),
+              });
+            } catch (err) {
+              console.error("Failed to save image reply (cancel):", err);
+            }
+          }
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "X-Conversation-Id": convoId ?? "",
+          "X-Rag-Docs": "",
+        },
+      });
+    } catch (err: any) {
+      console.error("Image generation failed:", err?.message || err);
+      await cleanUp();
+      return NextResponse.json(
+        { error: err?.message || "Image generation failed — please try again." },
+        { status: 502 }
+      );
+    }
+  }
 
   // ---------- RAG retrieval (signed-in users only; best-effort) ----------
   // Documents the user pinned to this chat (or all their docs if none are

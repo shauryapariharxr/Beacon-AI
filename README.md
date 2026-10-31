@@ -51,6 +51,20 @@ Mistral) for fast, open-model answers that survive rate limits.
    Fill in `GROQ_API_KEY`, `DATABASE_URL`, and `JWT_SECRET` (32+ random
    characters). `MISTRAL_API_KEY` is optional but recommended.
 
+   **Image generation:** no key needed — image-style chat messages
+   ("draw a poster of the water cycle", "make a logo") go to a free
+   keyless image provider automatically. Optional upgrades:
+   - `POLLINATIONS_API_KEY` ([enter.pollinations.ai](https://enter.pollinations.ai),
+     API keys) — removes the 1-image/45-second free limit and the corner
+     logo, and enables higher-quality models via their OpenAI-compatible
+     images endpoint.
+   - `GEMINI_API_KEY` from [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+     (billing must be enabled — the free tier has no image quota) — routes
+     those messages to Google's Nano Banana image models; every generated
+     image carries a SynthID watermark.
+   When set, those messages stream the picture into the conversation
+   (signed-in chats keep it in the database; guests see it inline).
+
 3. **Create the database tables**
 
    Run the contents of `drizzle/0000_init.sql` once in your Neon SQL editor,

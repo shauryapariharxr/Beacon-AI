@@ -192,6 +192,23 @@ export function MessageBubble({ role, content }: { role: "user" | "assistant"; c
                   </a>
                 );
               },
+              // Generated images arrive as markdown `![alt](url)` inside the
+              // assistant's reply — style them like real content, with a
+              // rounded frame and a natural width, instead of Markdown's
+              // bare inline image. Click opens the full-resolution file.
+              img({ src, alt }) {
+                if (!src) return null;
+                return (
+                  <a href={src} target="_blank" rel="noopener noreferrer" className="block">
+                    <img
+                      src={src}
+                      alt={alt || "Generated image"}
+                      loading="lazy"
+                      className="rounded-xl my-2.5 w-auto max-w-full max-h-[420px] cursor-zoom-in border border-white/10 bg-black/20"
+                    />
+                  </a>
+                );
+              },
             }}
           >
             {content}
