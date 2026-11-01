@@ -61,6 +61,37 @@ export function isImageGenRequest(message: string): boolean {
   return CREATION_VERB.test(probe) && VISUAL_NOUN.test(probe);
 }
 
+/**
+ * Is this message a *follow-up edit* on the image from the previous turn —
+ * "add a girl into it", "remove the chandelier", "make it look like night"?
+ *
+ * Without this check such turns fell to the regular text models, whose
+ * safety training over-refuses image+person phrasing with a canned "I'm
+ * sorry, but I can't help with that." — when the honest behavior is a
+ * fresh edited image, exactly like a chat with an attached reference would
+ * have produced. Conservative on purpose: requires an edit verb and either
+ * a visual noun or a back-reference pronoun, and never fires for questions
+ * or long prose that just happens to contain "add".
+ */
+const EDIT_VERB =
+  /\b(add|adds|adding|insert|including|include|put|paste|remove|removing|delete|erase|clear|replace|swapping|swap|change|changing|edit|editing|modify|modifying|update|turn|convert|transform|adjust|make)\b/i;
+const BACKREF =
+  /\b(it|this|that|them|those|there|here|image|picture|photo|drawing|artwork)\b/i;
+
+export function isImageEditFollowUp(message: string): boolean {
+  if (message.length > 300) return false;
+  // A fresh creation request has its own, stricter router.
+  if (isImageGenRequest(message)) return false;
+  if (!EDIT_VERB.test(message)) return false;
+  if (!VISUAL_NOUN.test(message) && !BACKREF.test(message)) return false;
+  // Interrogatives stay in chat mode — "what changed in your code?" is not
+  // an edit request no matter what the previous bubble showed.
+  if (/^(how|what|why|when|where|who|is|are|can|could|should|do|does|did)\b/i.test(message.trim())) {
+    return false;
+  }
+  return true;
+}
+
 export type GeneratedImage = {
   mimeType: string;
   base64: string;

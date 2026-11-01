@@ -691,31 +691,40 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ---------- Image generation placeholder (ImageGeneratingBubble) ----------
 
-   A sheen sweeps across the dot-matrix panel while the model paints. The dot
-   grid itself is a radial-gradient background-image on the panel, so the only
-   animated element is this overlay layer — one composited property, cheap
-   enough to sit on screen for the 5–90s an image generation can take. */
-@keyframes img-shimmer {
-  0% {
-    background-position: -140% 0;
+   A field of lamp-colored dots that drift and pulse while the model paints,
+   sitting straight on the message bubble — no opaque backdrop, no sweeping
+   sheen. Animation is transform/opacity only on ~96 tiny composited layers,
+   cheap enough to run for the 5–90s a generation can take. */
+@keyframes img-dots-float {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.25;
   }
-  100% {
-    background-position: 240% 0;
+  50% {
+    transform: translateY(-8px) scale(1.35);
+    opacity: 1;
   }
 }
 
-.image-gen-shimmer {
-  background: linear-gradient(
-    105deg,
-    transparent 30%,
-    rgba(232, 163, 61, 0.16) 46%,
-    rgba(255, 205, 130, 0.3) 50%,
-    rgba(232, 163, 61, 0.16) 54%,
-    transparent 70%
-  );
-  background-size: 220% 100%;
-  background-repeat: no-repeat;
-  animation: img-shimmer 2.1s linear infinite;
+.image-dots-field {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  place-items: center;
+  row-gap: 2px;
+}
+
+.image-dots-dot {
+  border-radius: 9999px;
+  animation: img-dots-float ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-dots-dot {
+    /* No motion, but keep the dot field visible and readable. */
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 /* Status pill in the placeholder's corner ("Creating your image… … 87%"). */
@@ -724,19 +733,4 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid rgba(232, 163, 61, 0.35);
   padding: 1px 9px;
   border-radius: 999px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .image-gen-shimmer {
-    animation: none;
-    background: none;
-  }
-}
-
-@media (max-width: 640px) {
-  .image-gen-shimmer {
-    /* Same perf reasoning as the entrance animations above: the placeholder
-       holds a full-screen-ish surface on phones. */
-    animation: img-shimmer 3s linear infinite;
-  }
 }

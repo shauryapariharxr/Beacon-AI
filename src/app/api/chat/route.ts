@@ -22,6 +22,7 @@ import {
 import { rateLimit, clientKey } from "@/lib/rateLimit";
 import {
   isImageGenRequest,
+  isImageEditFollowUp,
   hasImageProvider,
   generateImage,
   parseRefImages,
@@ -256,6 +257,38 @@ export async function POST(req: NextRequest) {
     history.push({ role: "user", content: message });
   }
 
+  // ---------- Follow-up edits on the previous turn's image ----------
+  // "add a girl into it" right after a generation: the last assistant bubble
+  // holds the generated image, and its markdown's image id lets us load the
+  // exact bytes the user is looking at. With those as the reference the turn
+  // becomes a normal kontext edit; without this the message fell to the text
+  // models, which over-refuse image+person phrasing ("I'm sorry, but I can't
+  // help with that."). References win over the follow-up lookup — a newly
+  // attached image is always what the user means.
+  let followUpEdit: { mimeType: string; base64: string } | null = null;
+  if (userId && convoId && !attachments.length && isImageEditFollowUp(message)) {
+    // The message just sent is history's last element; look only at prior turns.
+    const lastImageMarkdown = [...history.slice(0, -1)]
+      .reverse()
+      .find((m) => m.role === "assistant" && m.content.includes("/api/images/"))
+      ?.content;
+    const prevImageId = lastImageMarkdown?.match(/\/api\/images\/([A-Za-z0-9_-]+)/)?.[1];
+    if (prevImageId) {
+      try {
+        // conversationId in the WHERE repeats the ownership check the route
+        // already made on the conversation itself.
+        const rows = await db
+          .select({ mimeType: images.mimeType, data: images.data })
+          .from(images)
+          .where(and(eq(images.id, prevImageId), eq(images.conversationId, convoId)))
+          .limit(1);
+        if (rows.length) followUpEdit = { mimeType: rows[0].mimeType, base64: rows[0].data };
+      } catch (err) {
+        console.error("Failed to load the previous turn's image for editing:", err);
+      }
+    }
+  }
+
   // Detected once, used for the prompt rules, the per-turn language directive,
   // and the temperature choice.
   const replyLang = detectReplyLang(message);
@@ -265,7 +298,9 @@ export async function POST(req: NextRequest) {
   // routed out of the regular chat providers before they claim their rate
   // limit or start streaming early prose. The image is produced, saved, and
   // returned as a small markdown payload that the client already renders.
-  if ((isImageGenRequest(message) || attachments.length > 0) && hasImageProvider()) {
+  const referenceForEdit =
+    attachments.length ? attachments : followUpEdit ? [followUpEdit] : [];
+  if ((isImageGenRequest(message) || referenceForEdit.length > 0) && hasImageProvider()) {
     const cleanUp = async () => {
       if (!userId || !userMessageId || !convoId) return;
       try {
@@ -277,7 +312,7 @@ export async function POST(req: NextRequest) {
     };
 
     try {
-      const img = await generateImage(message, attachments);
+      const img = await generateImage(message, referenceForEdit);
       // Upload the user's reference images so the stored conversation shows
       // what was attached (and later assistants/tools can see it) — only for
       // signed-in chats; the message row gains markdown links to them.
