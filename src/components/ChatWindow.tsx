@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   ArrowUp,
+  ImagePlus,
   LogOut,
   ChevronDown,
   Menu,
@@ -13,6 +14,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
+import { ImageGeneratingBubble } from "./ImageGeneratingBubble";
 import { BotAvatar } from "./BotAvatar";
 import { Avatar } from "./Avatar";
 import { ModelSelector } from "./ModelSelector";
@@ -62,6 +64,16 @@ export function ChatWindow({
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState("");
   const [pasteText, setPasteText] = useState("");
+  // Reference images for image-to-image ("make this a cartoon"): data URLs on
+  // the client; the server re-validates everything. Limits mirror
+  // src/lib/images.ts: max 3, ≤6 MB each, PNG/JPEG/WebP only.
+  const MAX_REF_IMAGES = 3;
+  const [refImages, setRefImages] = useState<string[]>([]);
+  const [refError, setRefError] = useState<string | null>(null);
+  const refInputRef = useRef<HTMLInputElement>(null);
+  // What the empty trailing assistant bubble is waiting on: a text stream
+  // (dots) or an image generation (dot-matrix placeholder).
+  const [pendingKind, setPendingKind] = useState<"chat" | "image">("chat");
   // Filenames the server actually retrieved for the latest reply (X-Rag-Docs).
   const [ragNote, setRagNote] = useState<string | null>(null);
   // Logging out is one confirm away: a stray tap on the avatar used to end
@@ -244,9 +256,37 @@ export function ChatWindow({
     loadDocs();
   }
 
+/**
+ * Client mirror of src/lib/images.ts's isImageGenRequest, so the placeholder
+ * can switch to the image animation without waiting for the server. A miss
+ * here only picks the wrong idle animation briefly. Keep in sync by hand.
+ */
+function looksLikeImageRequest(text: string): boolean {
+  if (!text || text.length > 500) return false;
+  const CREATION =
+    /\b(draw|draws|drawing|generate|creates?|make|makes?|making|paint|paints?|painting|design|renders?|imagine|imagines?|sketch|sketches?|illustrate|illustration|show)\b/i;
+  const VISUAL =
+    /\b(image|images|illustration|illustrations|picture|pictures|pic|pics|photo|photos|photograph|artwork|poster|posters|logo|wallpaper|painting|sketch|sketche?s?|icon|icons|banner|stickers?|chart|diagram|drawing|art|portrait|scene|comic|cartoon|clipart|thumbnail|flyer|invitation)\b/i;
+  const brackets = text.match(/\[(.*?)\]/)?.[1];
+  const probe = brackets || text;
+  return CREATION.test(probe) && VISUAL.test(probe);
+}
+
+/** Read picked files into data URLs for the composer's preview chips. */
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
   async function send() {
     const text = input.trim();
-    if (!text || sending) return;
+    // Images alone are enough: an empty message with a picture attached means
+    // "edit this picture" — the server accepts exactly that shape too.
+    if ((!text && refImages.length === 0) || sending) return;
     setRagNote(null);
     // Belt-and-braces client guard; the API enforces this for real.
     if (!isAuthed && model !== "flash") {
@@ -254,12 +294,28 @@ export function ChatWindow({
       return;
     }
     setError(null);
+    setRefError(null);
+    // Snapshot attachments before clearing: the request body, the optimistic
+    // bubble and the pending-kind choice all need them.
+    const refs = refImages;
     setInput("");
+    setRefImages([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     // We're sending — definitely want to watch the reply stream in.
     isPinnedRef.current = true;
     setShowJump(false);
-    setMessages((m) => [...m, { role: "user", content: text }, { role: "assistant", content: "" }]);
+    // The user bubble shows attached images inline by rendering the same
+    // markdown shape the server persists — MessageBubble parses it back out
+    // there, so the optimistic view and the reloaded conversation match.
+    const refMarkdown = refs.map((src) => `![Uploaded image](${src})`).join("\n\n");
+    setMessages((m) => [
+      ...m,
+      { role: "user", content: [text, refMarkdown].filter(Boolean).join("\n\n") },
+      { role: "assistant", content: "" },
+    ]);
+    // Chosen before the fetch so the empty assistant bubble shows the right
+    // placeholder immediately.
+    setPendingKind(refs.length > 0 || looksLikeImageRequest(text) ? "image" : "chat");
     setSending(true);
     const gen = ++streamGenRef.current;
     activeStreamGenRef.current = gen;
@@ -274,6 +330,8 @@ export function ChatWindow({
           conversationId: convoId,
           // Pinned documents scope retrieval to those files; empty = all docs.
           documentIds: isAuthed && pinnedIds.length ? pinnedIds : undefined,
+          // Reference images for image-to-image editing (data URLs).
+          images: refs.length ? refs : undefined,
           // Guests have no server-side history, so carry the last few turns
           // from local state — this is what gives the AI its memory.
           guestHistory: isAuthed
@@ -366,6 +424,38 @@ export function ChatWindow({
     (userEmail ? userEmail.split("@")[0] : "");
 
   // Hidden file input lives at the component root level.
+  /**
+   * Validate + stage picked images as preview chips. Over-budget files are
+   * rejected with a readable reason instead of silently disappearing.
+   */
+  function handlePickRefImages(files: FileList) {
+    const room = MAX_REF_IMAGES - refImages.length;
+    if (room <= 0) return;
+    setRefError(null);
+    const picked = Array.from(files).slice(0, room);
+    const ok: File[] = [];
+    for (const f of picked) {
+      if (!/^image\/(png|jpeg|webp)$/.test(f.type)) {
+        setRefError("Only PNG, JPEG or WebP images can be attached.");
+        continue;
+      }
+      if (f.size > 6 * 1024 * 1024) {
+        setRefError("That image is over 6 MB — try a smaller one.");
+        continue;
+      }
+      ok.push(f);
+    }
+    if (!ok.length) return;
+    Promise.all(ok.map(readFileAsDataUrl))
+      .then((urls) => setRefImages((v) => [...v, ...urls].slice(0, MAX_REF_IMAGES)))
+      .catch(() => setRefError("Couldn't read that image — try a different file."));
+  }
+
+  function removeRefImage(index: number) {
+    setRefImages((v) => v.filter((_, i) => i !== index));
+  }
+
+  // Hidden file input lives at the component root level.
   const fileInput = (
     <input
       ref={fileInputRef}
@@ -380,6 +470,22 @@ export function ChatWindow({
     />
   );
 
+  // Second hidden input for image attachments — different file types, and
+  // a different purpose from the documents picker above.
+  const refInput = (
+    <input
+      ref={refInputRef}
+      type="file"
+      accept="image/png,image/jpeg,image/webp"
+      multiple
+      className="hidden"
+      onChange={(e) => {
+        if (e.target.files?.length) handlePickRefImages(e.target.files);
+        e.target.value = "";
+      }}
+    />
+  );
+
   // The tool row is only worth its height when it actually holds something:
   // with the model picker moved into the composer, a signed-out visitor has
   // neither a menu button nor an account menu, and used to get a bare 24px
@@ -389,6 +495,7 @@ export function ChatWindow({
   return (
     <div className="flex flex-col h-full">
       {fileInput}
+      {refInput}
       {showToolRow && (
       <div className="shrink-0 flex justify-between items-center px-4 py-3 gap-2 border-b border-white/[0.06]">
         <div className="flex items-center gap-2 min-w-0">
@@ -467,6 +574,9 @@ export function ChatWindow({
           const isLastAssistant = i === messages.length - 1 && m.role === "assistant";
           const isThinking = sending && isLastAssistant && !m.content;
           if (isThinking) {
+            if (pendingKind === "image") {
+              return <ImageGeneratingBubble key={i} />;
+            }
             return (
               <div key={i} className="flex items-center gap-2.5 max-w-[85%] animate-msg-in">
                 <BotAvatar />
@@ -633,6 +743,28 @@ export function ChatWindow({
               it — model on the left, send on the right — so the box reads as
               one input rather than a toolbar with a textarea in it. */}
           <div className="glass-strong rounded-2xl p-2.5">
+            {refImages.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-1 pt-1 pb-2">
+                {refImages.map((src, i) => (
+                  <div
+                    key={i}
+                    className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/15"
+                  >
+                    <img src={src} alt="" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removeRefImage(i)}
+                      aria-label="Remove image"
+                      className="absolute top-1 right-1 rounded-full bg-black/70 p-0.5 text-white/90 hover:text-white transition-colors"
+                    >
+                      <X className="w-3 h-3" strokeWidth={2.5} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {refError && (
+              <div className="px-1 pb-1.5 text-xs text-amber-300">{refError}</div>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
@@ -661,6 +793,15 @@ export function ChatWindow({
             />
             <div className="flex items-center justify-between gap-2 mt-0.5">
               <div className="flex items-center gap-1 min-w-0">
+                <button
+                  onClick={() => refInputRef.current?.click()}
+                  disabled={sending || refImages.length >= MAX_REF_IMAGES}
+                  aria-label="Attach an image"
+                  title="Attach an image — for example “make this a cartoon”"
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-white/[0.06] transition-all shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ImagePlus className="w-4.5 h-4.5" />
+                </button>
                 <ModelSelector value={model} onChange={setModel} isAuthed={isAuthed} dropUp />
                 {isAuthed && (
                   <button
@@ -685,7 +826,7 @@ export function ChatWindow({
               </div>
               <button
                 onClick={send}
-                disabled={sending || !input.trim()}
+                disabled={sending || (!input.trim() && refImages.length === 0)}
                 aria-label="Send"
                 className="w-9 h-9 rounded-full bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 transition-all shrink-0 relative"
               >

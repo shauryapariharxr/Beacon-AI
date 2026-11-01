@@ -105,14 +105,55 @@ function CodeBlock({ language, children }: { language: string; children: string 
   );
 }
 
+/**
+ * A user message whose content carries `![alt](src)` images (uploaded
+ * references the server persists, or data URLs in the optimistic bubble) is
+ * split into its images and remaining text, so the bubble shows a real image
+ * row instead of raw markdown.
+ */
+const USER_IMAGE_RE = /!\[([^\]]*)\]\((data:image\/[^)\s]+|\/api\/images\/[^)\s]+)\)/g;
+
+function parseUserContent(content: string): {
+  images: { src: string; alt: string }[];
+  text: string;
+} {
+  const images: { src: string; alt: string }[] = [];
+  const text = content
+    .replace(USER_IMAGE_RE, (_match, alt: string, src: string) => {
+      images.push({ src, alt });
+      return "";
+    })
+    .trim();
+  return { images, text };
+}
+
 export function MessageBubble({ role, content }: { role: "user" | "assistant"; content: string }) {
   const isUser = role === "user";
 
   if (isUser) {
+    const { images, text } = parseUserContent(content);
     return (
       <div className="flex justify-end animate-msg-in">
-        <div className="max-w-[75%] rounded-[20px] rounded-br-md bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] px-4 py-2.5 text-[15px] leading-relaxed shadow-[0_2px_12px_rgba(232,163,61,0.15)]">
-          {content}
+        <div
+          className={`max-w-[75%] rounded-[20px] rounded-br-md bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] text-[15px] leading-relaxed shadow-[0_2px_12px_rgba(232,163,61,0.15)] ${
+            images.length > 0 && !text ? "p-2" : "px-4 py-2.5"
+          }`}
+        >
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2 justify-end">
+              {images.map((img) => (
+                <a key={img.src} href={img.src} target="_blank" rel="noopener noreferrer">
+                  <img
+                    src={img.src}
+                    alt={img.alt || "Uploaded image"}
+                    loading="lazy"
+                    className="rounded-xl max-h-56 max-w-full border border-black/10 cursor-zoom-in"
+                  />
+                </a>
+              ))}
+            </div>
+          )}
+          {text && <div className={images.length > 0 ? "px-2 pb-2" : ""}>{text}</div>}
         </div>
       </div>
     );

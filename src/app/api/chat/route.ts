@@ -24,6 +24,7 @@ import {
   isImageGenRequest,
   hasImageProvider,
   generateImage,
+  parseRefImages,
 } from "@/lib/images";
 import { images } from "@/lib/schema";
 import {
@@ -89,15 +90,21 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
   }
-  const { message, modelKey, guestHistory, conversationId, documentIds } = body as {
+  const { message: rawMessage, modelKey, guestHistory, conversationId, documentIds, images: rawImages } = body as {
     message: string;
     modelKey: string;
     guestHistory?: { role: string; content: string }[];
     conversationId?: string;
     documentIds?: string[];
+    images?: string[];
   };
 
-  if (!message || typeof message !== "string") {
+  // Reference images for image-to-image editing ("what if it were sunset?").
+  // Strictly validated; oversized/malformed ones are silently dropped.
+  const attachments = parseRefImages(rawImages);
+  const message = typeof rawMessage === "string" ? rawMessage : "";
+
+  if (!message && attachments.length === 0) {
     return NextResponse.json({ error: "Message is required" }, { status: 400 });
   }
   if (message.length > MAX_MESSAGE_LENGTH) {
@@ -258,7 +265,7 @@ export async function POST(req: NextRequest) {
   // routed out of the regular chat providers before they claim their rate
   // limit or start streaming early prose. The image is produced, saved, and
   // returned as a small markdown payload that the client already renders.
-  if (isImageGenRequest(message) && hasImageProvider()) {
+  if ((isImageGenRequest(message) || attachments.length > 0) && hasImageProvider()) {
     const cleanUp = async () => {
       if (!userId || !userMessageId || !convoId) return;
       try {
@@ -270,7 +277,38 @@ export async function POST(req: NextRequest) {
     };
 
     try {
-      const img = await generateImage(message);
+      const img = await generateImage(message, attachments);
+      // Upload the user's reference images so the stored conversation shows
+      // what was attached (and later assistants/tools can see it) — only for
+      // signed-in chats; the message row gains markdown links to them.
+      if (userId && convoId && attachments.length) {
+        try {
+          const refsMarkdown: string[] = [];
+          for (const ref of attachments) {
+            const refId = nanoid();
+            await db.insert(images).values({
+              id: refId,
+              conversationId: convoId,
+              mimeType: ref.mimeType,
+              data: ref.base64,
+              createdAt: Date.now(),
+            });
+            refsMarkdown.push(`![Uploaded image](/api/images/${refId})`);
+          }
+          if (userMessageId && refsMarkdown.length) {
+            await db
+              .update(messages)
+              .set({
+                content: [message, refsMarkdown.join("\n\n")].filter(Boolean).join("\n\n"),
+              })
+              .where(and(eq(messages.conversationId, convoId), eq(messages.id, userMessageId)));
+          }
+        } catch (err) {
+          // Reference save is a nicety — a failed attachment link never
+          // blocks the generated answer that is already in hand.
+          console.error("Failed to save reference images:", err);
+        }
+      }
       // Signed-in: store the binary in its own table and reference it; the
       // message keeps only a small markdown string (history reloads stay
       // lightweight). Guests get a data URL inline — nothing is stored.

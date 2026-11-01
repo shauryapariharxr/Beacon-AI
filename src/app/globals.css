@@ -688,3 +688,55 @@ h1, h2, h3, h4, h5, h6 {
     box-shadow: none;
   }
 }
+
+/* ---------- Image generation placeholder (ImageGeneratingBubble) ----------
+
+   A sheen sweeps across the dot-matrix panel while the model paints. The dot
+   grid itself is a radial-gradient background-image on the panel, so the only
+   animated element is this overlay layer — one composited property, cheap
+   enough to sit on screen for the 5–90s an image generation can take. */
+@keyframes img-shimmer {
+  0% {
+    background-position: -140% 0;
+  }
+  100% {
+    background-position: 240% 0;
+  }
+}
+
+.image-gen-shimmer {
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(232, 163, 61, 0.16) 46%,
+    rgba(255, 205, 130, 0.3) 50%,
+    rgba(232, 163, 61, 0.16) 54%,
+    transparent 70%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: img-shimmer 2.1s linear infinite;
+}
+
+/* Status pill in the placeholder's corner ("Creating your image… … 87%"). */
+.pill-progress {
+  background: rgba(232, 163, 61, 0.12);
+  border: 1px solid rgba(232, 163, 61, 0.35);
+  padding: 1px 9px;
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-gen-shimmer {
+    animation: none;
+    background: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .image-gen-shimmer {
+    /* Same perf reasoning as the entrance animations above: the placeholder
+       holds a full-screen-ish surface on phones. */
+    animation: img-shimmer 3s linear infinite;
+  }
+}
