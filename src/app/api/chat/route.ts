@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { getSessionUserId } from "@/lib/auth";
-import { isValidModel } from "@/lib/models";
+import { isValidModel, type ModelKey } from "@/lib/models";
 import {
   buildSystemPrompt,
   detectReplyLang,
@@ -21,13 +21,15 @@ import {
 } from "@/lib/providers";
 import { rateLimit, clientKey } from "@/lib/rateLimit";
 import {
-  isImageGenRequest,
-  isImageEditFollowUp,
-  hasImageProvider,
-  generateImage,
-  parseRefImages,
-} from "@/lib/images";
-import { images } from "@/lib/schema";
+  isDocumentRequest,
+  detectDocFormat,
+  isDocFormat,
+  draftDocument,
+  renderDocument,
+  DOC_MIME,
+  type DocFormat,
+} from "@/lib/documents";
+import { generatedFiles } from "@/lib/schema";
 import {
   retrieveDocumentContext,
   retrieveMemoryContext,
@@ -65,6 +67,10 @@ const HARD_FAIL_STATUSES = new Set([403, 404]);
 // database connection) until the platform kills it.
 const UPSTREAM_TIMEOUT_MS = 90_000;
 
+// A generated PDF/DOCX/PPTX is a few-hundred-KB base64 row in Postgres unless
+// something goes runaway on the draft; this refuses that before the insert.
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
+
 // Rate-limit recovery. When every instance is cooling down, the answer is
 // worth a short wait (free-tier windows are seconds long) but not an unbounded
 // one — past this we fail fast and tell the user to retry, instead of pinning
@@ -91,21 +97,20 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
   }
-  const { message: rawMessage, modelKey, guestHistory, conversationId, documentIds, images: rawImages } = body as {
+  const { message: rawMessage, modelKey, guestHistory, conversationId, documentIds, docFormat } = body as {
     message: string;
     modelKey: string;
     guestHistory?: { role: string; content: string }[];
     conversationId?: string;
     documentIds?: string[];
-    images?: string[];
+    // Set only when the composer's format picker chose one — any message in
+    // this mode becomes a document. Unset = auto-detection decides.
+    docFormat?: string;
   };
 
-  // Reference images for image-to-image editing ("what if it were sunset?").
-  // Strictly validated; oversized/malformed ones are silently dropped.
-  const attachments = parseRefImages(rawImages);
   const message = typeof rawMessage === "string" ? rawMessage : "";
 
-  if (!message && attachments.length === 0) {
+  if (!message.trim()) {
     return NextResponse.json({ error: "Message is required" }, { status: 400 });
   }
   if (message.length > MAX_MESSAGE_LENGTH) {
@@ -244,122 +249,65 @@ export async function POST(req: NextRequest) {
             content: m.content.slice(0, MAX_MESSAGE_LENGTH),
           }))
       : [];
-    // Strip inline image data URLs before history is echoed back to the
-    // provider — a 2MB base64 payload in a follow-up turn ("make it blue")
-    // would stretch request bodies past safe limits. The image URL itself is
-    // http(s) only for signed-in users, so guests lose nothing real.
     history = history.filter((m) => m.content !== message);
+    // Strip inline generated-file data URLs before history is echoed back to
+    // the provider — a generated PDF re-sent on every follow-up turn ("make
+    // it shorter") would stretch request bodies past safe limits.
     history = history.map((m) =>
       m.role === "assistant"
-        ? { ...m, content: m.content.replace(/!\[[^\]]*\]\(data:[^)]+\)/g, "*(generated image omitted)*") }
+        ? { ...m, content: m.content.replace(/\[[^\]]*\]\(data:[^)]+\)/g, "*(generated document omitted)*") }
         : m
     );
     history.push({ role: "user", content: message });
-  }
-
-  // ---------- Follow-up edits on the previous turn's image ----------
-  // "add a girl into it" right after a generation: the last assistant bubble
-  // holds the generated image, and its markdown's image id lets us load the
-  // exact bytes the user is looking at. With those as the reference the turn
-  // becomes a normal kontext edit; without this the message fell to the text
-  // models, which over-refuse image+person phrasing ("I'm sorry, but I can't
-  // help with that."). References win over the follow-up lookup — a newly
-  // attached image is always what the user means.
-  let followUpEdit: { mimeType: string; base64: string } | null = null;
-  if (userId && convoId && !attachments.length && isImageEditFollowUp(message)) {
-    // The message just sent is history's last element; look only at prior turns.
-    const lastImageMarkdown = [...history.slice(0, -1)]
-      .reverse()
-      .find((m) => m.role === "assistant" && m.content.includes("/api/images/"))
-      ?.content;
-    const prevImageId = lastImageMarkdown?.match(/\/api\/images\/([A-Za-z0-9_-]+)/)?.[1];
-    if (prevImageId) {
-      try {
-        // conversationId in the WHERE repeats the ownership check the route
-        // already made on the conversation itself.
-        const rows = await db
-          .select({ mimeType: images.mimeType, data: images.data })
-          .from(images)
-          .where(and(eq(images.id, prevImageId), eq(images.conversationId, convoId)))
-          .limit(1);
-        if (rows.length) followUpEdit = { mimeType: rows[0].mimeType, base64: rows[0].data };
-      } catch (err) {
-        console.error("Failed to load the previous turn's image for editing:", err);
-      }
-    }
   }
 
   // Detected once, used for the prompt rules, the per-turn language directive,
   // and the temperature choice.
   const replyLang = detectReplyLang(message);
 
-  // ---------- Image generation (Gemini) ----------
-  // An upfront picture request ("draw a water cycle poster for class 7") is
-  // routed out of the regular chat providers before they claim their rate
-  // limit or start streaming early prose. The image is produced, saved, and
-  // returned as a small markdown payload that the client already renders.
-  const referenceForEdit =
-    attachments.length ? attachments : followUpEdit ? [followUpEdit] : [];
-  if ((isImageGenRequest(message) || referenceForEdit.length > 0) && hasImageProvider()) {
+  // ---------- Document generation (PDF / Word / PowerPoint) ----------
+  // File requests are routed out of the regular chat providers before they
+  // claim their rate limit or start streaming prose. The composer's format
+  // picker (docFormat) forces a document every turn; otherwise auto-detection
+  // only fires on explicit creation verbs paired with a document noun.
+  const format: DocFormat = isDocFormat(docFormat) ? docFormat : detectDocFormat(message);
+  if (isDocFormat(docFormat) || isDocumentRequest(message)) {
     const cleanUp = async () => {
       if (!userId || !userMessageId || !convoId) return;
       try {
         await db.delete(messages).where(and(eq(messages.conversationId, convoId), eq(messages.id, userMessageId)));
         if (createdConversation) await db.delete(conversations).where(eq(conversations.id, convoId));
       } catch (err) {
-        console.error("Image path rollback failed:", err);
+        console.error("Document path rollback failed:", err);
       }
     };
 
     try {
-      const img = await generateImage(message, referenceForEdit);
-      // Upload the user's reference images so the stored conversation shows
-      // what was attached (and later assistants/tools can see it) — only for
-      // signed-in chats; the message row gains markdown links to them.
-      if (userId && convoId && attachments.length) {
-        try {
-          const refsMarkdown: string[] = [];
-          for (const ref of attachments) {
-            const refId = nanoid();
-            await db.insert(images).values({
-              id: refId,
-              conversationId: convoId,
-              mimeType: ref.mimeType,
-              data: ref.base64,
-              createdAt: Date.now(),
-            });
-            refsMarkdown.push(`![Uploaded image](/api/images/${refId})`);
-          }
-          if (userMessageId && refsMarkdown.length) {
-            await db
-              .update(messages)
-              .set({
-                content: [message, refsMarkdown.join("\n\n")].filter(Boolean).join("\n\n"),
-              })
-              .where(and(eq(messages.conversationId, convoId), eq(messages.id, userMessageId)));
-          }
-        } catch (err) {
-          // Reference save is a nicety — a failed attachment link never
-          // blocks the generated answer that is already in hand.
-          console.error("Failed to save reference images:", err);
-        }
-      }
+      const draft = await draftDocument(message, modelKey as ModelKey, format);
+      const rendered = await renderDocument(draft, format);
+
       // Signed-in: store the binary in its own table and reference it; the
-      // message keeps only a small markdown string (history reloads stay
+      // message keeps only a small markdown link (history reloads stay
       // lightweight). Guests get a data URL inline — nothing is stored.
       let markdown: string;
       if (userId && convoId) {
-        const imageId = nanoid();
-        await db.insert(images).values({
-          id: imageId,
+        const fileId = nanoid();
+        if (rendered.bytes.length > MAX_FILE_BYTES) {
+          throw new Error("The document came out too large — try a shorter request.");
+        }
+        await db.insert(generatedFiles).values({
+          id: fileId,
           conversationId: convoId,
-          mimeType: img.mimeType,
-          data: img.base64,
+          filename: rendered.filename,
+          format,
+          mimeType: DOC_MIME[format],
+          sizeBytes: rendered.bytes.length,
+          data: rendered.bytes.toString("base64"),
           createdAt: Date.now(),
         });
-        markdown = `![Beacon generated image](/api/images/${imageId})${img.text ? `\n\n${img.text}` : ""}`;
+        markdown = `**${draft.title}**\n\n[📄 ${rendered.filename}](/api/files/${fileId}) — tap to download`;
       } else {
-        markdown = `![Beacon generated image](data:${img.mimeType};base64,${img.base64})${img.text ? `\n\n${img.text}` : ""}`;
+        markdown = `**${draft.title}**\n\n[📄 ${rendered.filename}](data:${DOC_MIME[format]};base64,${rendered.bytes.toString("base64")})`;
       }
 
       // One-shot reply — no tokens to trickle. The instrumented stream shape
@@ -384,7 +332,7 @@ export async function POST(req: NextRequest) {
                 createdAt: Date.now(),
               });
             } catch (err) {
-              console.error("Failed to save image reply:", err);
+              console.error("Failed to save document reply:", err);
             }
           }
           controller.close();
@@ -402,7 +350,7 @@ export async function POST(req: NextRequest) {
                 createdAt: Date.now(),
               });
             } catch (err) {
-              console.error("Failed to save image reply (cancel):", err);
+              console.error("Failed to save document reply (cancel):", err);
             }
           }
         },
@@ -415,10 +363,10 @@ export async function POST(req: NextRequest) {
         },
       });
     } catch (err: any) {
-      console.error("Image generation failed:", err?.message || err);
+      console.error("Document generation failed:", err?.message || err);
       await cleanUp();
       return NextResponse.json(
-        { error: err?.message || "Image generation failed — please try again." },
+        { error: err?.message || "Document generation failed — please try again." },
         { status: 502 }
       );
     }

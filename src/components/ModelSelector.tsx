@@ -10,6 +10,8 @@ export function ModelSelector({
   onChange,
   isAuthed,
   dropUp = false,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   value: ModelKey;
   onChange: (v: ModelKey) => void;
@@ -17,8 +19,15 @@ export function ModelSelector({
   // The selector lives at the bottom of the screen inside the composer, so its
   // menu has to open upward or it lands off-screen.
   dropUp?: boolean;
+  // Optional controlled mode: the empty-state "Switch model" shortcut opens
+  // this menu from outside the chip.
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) =>
+    onOpenChange ? onOpenChange(next) : setInternalOpen(next);
   const router = useRouter();
 
   // Guests are limited to Flash; the rest unlock after signing in.
@@ -27,7 +36,7 @@ export function ModelSelector({
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         className="surface-2 rounded-full pl-3 pr-2.5 py-1.5 text-sm text-ink flex items-center gap-1.5 hover:bg-white/[0.09] transition-colors"
       >
         <Zap className="w-3.5 h-3.5 text-lamp" />

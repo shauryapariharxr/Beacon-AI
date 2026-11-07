@@ -12,6 +12,7 @@ Mistral) for fast, open-model answers that survive rate limits.
 - **Three model modes** — Flash (quick), Smart (reasoning), Coder (code)
 - **Multi-provider failover** — requests rotate across Groq and Mistral; a rate-limited or unavailable provider is temporarily benched while traffic fails over
 - **Streaming responses** — tokens render as they are generated
+- **Documents** — ask for a PDF, Word file (.docx) or slide deck (.pptx), or pick the format in the composer; the reply is a real file you download in one tap
 - **Language toggle** — English, Roman Urdu, Urdu script
 - **Contact form** — messages delivered to the owner's inbox via Resend
 - **Abuse protection** — per-user/IP rate limits on chat and auth endpoints, backed by Upstash Redis in production with an in-memory fallback
@@ -51,19 +52,19 @@ Mistral) for fast, open-model answers that survive rate limits.
    Fill in `GROQ_API_KEY`, `DATABASE_URL`, and `JWT_SECRET` (32+ random
    characters). `MISTRAL_API_KEY` is optional but recommended.
 
-   **Image generation:** no key needed — image-style chat messages
-   ("draw a poster of the water cycle", "make a logo") go to a free
-   keyless image provider automatically. Optional upgrades:
-   - `POLLINATIONS_API_KEY` ([enter.pollinations.ai](https://enter.pollinations.ai),
-     API keys) — removes the 1-image/45-second free limit and the corner
-     logo, and enables higher-quality models via their OpenAI-compatible
-     images endpoint.
-   - `GEMINI_API_KEY` from [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-     (billing must be enabled — the free tier has no image quota) — routes
-     those messages to Google's Nano Banana image models; every generated
-     image carries a SynthID watermark.
-   When set, those messages stream the picture into the conversation
-   (signed-in chats keep it in the database; guests see it inline).
+   **Document generation:** no extra key needed — it drafts with the same
+   Groq/Mistral providers as chat. Ask for a PDF, Word file or slide deck
+   ("make a report on the water cycle", "create a resume pdf", "make a
+   6-slide deck on the solar system"), or pick the format in the composer.
+   Signed-in chats store the file in Postgres and serve it from
+   `/api/files/[id]`; guests download it straight from the reply and
+   nothing is stored.
+
+   PDFs embed Noto Sans and Noto Sans Devanagari (`src/assets/fonts`, packed
+   as base64 into `src/lib/docFonts.ts`), so Hindi and Roman Urdu documents
+   render instead of dropping glyphs. The fonts are SIL OFL 1.1; the license
+   ships at `src/assets/fonts/OFL.txt`. There is no headless browser in the
+   request path — PDFs are laid out with `pdf-lib`.
 
 3. **Create the database tables**
 
@@ -94,6 +95,13 @@ Mistral) for fast, open-model answers that survive rate limits.
    - Contact form only: `RESEND_API_KEY`, `CONTACT_EMAIL`, `EMAIL_FROM`
 4. Run `drizzle/0000_init.sql` against the production database (once).
 
+   **Upgrading an existing install to document generation:** run
+   `drizzle/0007_add_generated_files.sql`. It drops the removed `images`
+   table and creates `generated_files` (plus its conversation index) — or
+   execute the same statements by hand. `npm run db:push` currently crashes
+   on this schema (a drizzle-kit 0.24 bug on the vector columns), so use the
+   SQL file.
+
 ### Other platforms
 
 Any Node.js host works. Build with `npm run build`, start with `npm start`,
@@ -114,6 +122,7 @@ src/
       chat/route.ts          Streams responses; persists history when logged in
       auth/                  signup, login, logout, me
       conversations/         List and fetch saved conversations
+      files/[id]/route.ts    Serves a generated PDF/DOCX/PPTX (owner only)
       contact/route.ts       Contact form delivery via Resend
   components/                ChatWindow, Sidebar, ModelSelector, LanguageToggle, MessageBubble
   lib/
@@ -122,6 +131,7 @@ src/
     providers.ts             Multi-provider rotation and failover
     rateLimit.ts             Sliding-window rate limiter (Redis or in-memory)
     models.ts                Model modes (Flash / Smart / Coder)
+    documents.ts             Document intent detection, drafting, PDF/DOCX/PPTX renderers
     i18n.ts                  UI translation strings
 drizzle/
   0000_init.sql              Run once to create all tables

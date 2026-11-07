@@ -48,18 +48,20 @@ export const messages = pgTable("messages", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
-// ---------- Image generation ----------
+// ---------- Generated document files (PDF / DOCX / PPTX) ----------
 
-// Base64 image bodies looked up by /api/images/[id]. Keeping the binary out
-// of the `messages` row keeps conversation payloads small (a single generated
-// image is ~1–2 MB; stuffing it into the message content would ship it to
-// every messages-list API call and history fetch).
-export const images = pgTable("images", {
+// Base64 file bodies looked up by /api/files/[id]. Same split as the old
+// images table: the binary lives out of `messages` so conversation payloads
+// and history fetches stay small.
+export const generatedFiles = pgTable("generated_files", {
   id: text("id").primaryKey(),
-  // Conversation whose messages reference this image — ownership is checked
-  // through this join so one signed-in user can't read another's images.
+  // Conversation whose messages reference this file — ownership is checked
+  // through this join so one signed-in user can't read another's files.
   conversationId: text("conversation_id").notNull(),
-  mimeType: text("mime_type").notNull().default("image/png"),
+  filename: text("filename").notNull(),
+  format: text("format").notNull(), // pdf | docx | pptx
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: bigint("size_bytes", { mode: "number" }).notNull().default(0),
   data: text("data").notNull(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });

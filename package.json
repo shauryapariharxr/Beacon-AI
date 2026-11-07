@@ -11,10 +11,12 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.4",
     "bcryptjs": "^2.4.3",
+    "docx": "^9.15.2",
     "drizzle-orm": "^0.33.0",
     "firebase": "^12.19.0",
     "firebase-admin": "^14.4.0",
@@ -23,7 +25,9 @@
     "lucide-react": "^0.446.0",
     "nanoid": "^5.0.7",
     "next": "^14.2.5",
+    "pdf-lib": "^1.17.1",
     "postgres": "^3.4.4",
+    "pptxgenjs": "^4.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",

@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, FileText, Download } from "lucide-react";
 import { BotAvatar } from "./BotAvatar";
 
 function CopyButton({ code }: { code: string }) {
@@ -105,55 +105,14 @@ function CodeBlock({ language, children }: { language: string; children: string 
   );
 }
 
-/**
- * A user message whose content carries `![alt](src)` images (uploaded
- * references the server persists, or data URLs in the optimistic bubble) is
- * split into its images and remaining text, so the bubble shows a real image
- * row instead of raw markdown.
- */
-const USER_IMAGE_RE = /!\[([^\]]*)\]\((data:image\/[^)\s]+|\/api\/images\/[^)\s]+)\)/g;
-
-function parseUserContent(content: string): {
-  images: { src: string; alt: string }[];
-  text: string;
-} {
-  const images: { src: string; alt: string }[] = [];
-  const text = content
-    .replace(USER_IMAGE_RE, (_match, alt: string, src: string) => {
-      images.push({ src, alt });
-      return "";
-    })
-    .trim();
-  return { images, text };
-}
-
 export function MessageBubble({ role, content }: { role: "user" | "assistant"; content: string }) {
   const isUser = role === "user";
 
   if (isUser) {
-    const { images, text } = parseUserContent(content);
     return (
       <div className="flex justify-end animate-msg-in">
-        <div
-          className={`max-w-[75%] rounded-[20px] rounded-br-md bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] text-[15px] leading-relaxed shadow-[0_2px_12px_rgba(232,163,61,0.15)] ${
-            images.length > 0 && !text ? "p-2" : "px-4 py-2.5"
-          }`}
-        >
-          {images.length > 0 && (
-            <div className="flex flex-wrap gap-2 justify-end">
-              {images.map((img) => (
-                <a key={img.src} href={img.src} target="_blank" rel="noopener noreferrer">
-                  <img
-                    src={img.src}
-                    alt={img.alt || "Uploaded image"}
-                    loading="lazy"
-                    className="rounded-xl max-h-56 max-w-full border border-black/10 cursor-zoom-in"
-                  />
-                </a>
-              ))}
-            </div>
-          )}
-          {text && <div className={images.length > 0 ? "px-2 pb-2" : ""}>{text}</div>}
+        <div className="max-w-[75%] rounded-[20px] rounded-br-md bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] text-[15px] leading-relaxed shadow-[0_2px_12px_rgba(232,163,61,0.15)] px-4 py-2.5">
+          <div className="whitespace-pre-wrap break-words">{content}</div>
         </div>
       </div>
     );
@@ -225,28 +184,44 @@ export function MessageBubble({ role, content }: { role: "user" | "assistant"; c
               hr() {
                 return <hr className="border-white/10 my-4" />;
               },
-              // Links open in new tab
+              // Generated documents arrive as markdown links into
+              // /api/files/[id] (or inline data URLs in guest chats). They
+              // render as a proper download card instead of a bare link —
+              // the file is the payload that matters, so it gets the frame.
               a({ href, children }) {
+                const isFile =
+                  typeof href === "string" &&
+                  (/^\/api\/files\//.test(href) || /^data:application\//.test(href));
+                if (isFile && typeof href === "string") {
+                  // Children of the markdown link may be a single string or a
+                  // list of text nodes — normalize both to the plain label.
+                  const name = (Array.isArray(children)
+                    ? children.map((c) => (typeof c === "string" ? c : "")).join("")
+                    : String(children)
+                  ).trim().replace(/^📄\s*/, "");
+                  const ext = name.includes(".") ? name.split(".").pop()!.toUpperCase() : "FILE";
+                  return (
+                    <a
+                      href={href}
+                      download={name}
+                      target={href.startsWith("/api/files/") ? undefined : "_blank"}
+                      rel="noopener noreferrer"
+                      className="not-prose flex items-center gap-3 my-3 rounded-xl border border-lamp/25 bg-lamp/[0.06] px-3.5 py-3 max-w-xs hover:bg-lamp/[0.12] transition-colors group"
+                    >
+                      <span className="w-9 h-9 rounded-lg bg-lamp/15 flex items-center justify-center shrink-0">
+                        <FileText className="w-4.5 h-4.5 text-lamp" />
+                      </span>
+                      <span className="flex flex-col min-w-0 flex-1">
+                        <span className="text-sm font-medium text-ink truncate">{name}</span>
+                        <span className="text-[11px] text-muted">{ext} document</span>
+                      </span>
+                      <Download className="w-4 h-4 text-lamp shrink-0 opacity-70 group-hover:opacity-100 transition-opacity" />
+                    </a>
+                  );
+                }
                 return (
                   <a href={href} target="_blank" rel="noopener noreferrer">
                     {children}
-                  </a>
-                );
-              },
-              // Generated images arrive as markdown `![alt](url)` inside the
-              // assistant's reply — style them like real content, with a
-              // rounded frame and a natural width, instead of Markdown's
-              // bare inline image. Click opens the full-resolution file.
-              img({ src, alt }) {
-                if (!src) return null;
-                return (
-                  <a href={src} target="_blank" rel="noopener noreferrer" className="block">
-                    <img
-                      src={src}
-                      alt={alt || "Generated image"}
-                      loading="lazy"
-                      className="rounded-xl my-2.5 w-auto max-w-full max-h-[420px] cursor-zoom-in border border-white/10 bg-black/20"
-                    />
                   </a>
                 );
               },

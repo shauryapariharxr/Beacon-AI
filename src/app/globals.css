@@ -689,9 +689,9 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
-/* ---------- Image generation placeholder (ImageGeneratingBubble) ----------
+/* ---------- Document generation placeholder (DocumentGeneratingBubble) ----------
 
-   A field of lamp-colored dots that drift and pulse while the model paints,
+   A field of lamp-colored dots that drift and pulse while the draft renders,
    sitting straight on the message bubble — no opaque backdrop, no sweeping
    sheen. Animation is transform/opacity only on ~96 tiny composited layers,
    cheap enough to run for the 5–90s a generation can take. */
@@ -733,4 +733,46 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid rgba(232, 163, 61, 0.35);
   padding: 1px 9px;
   border-radius: 999px;
+}
+
+/* ---------- Document-generation placeholder ---------- */
+
+/* Same dot grid as the old image field, minus its own backdrop: the dots sit
+   straight on the message bubble's paper-tinted outline. */
+.doc-dots-field {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  place-items: center;
+  row-gap: 2px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+/* A page-shaped column sweep behind the dots — reads as "text being laid
+   out row by row" without any literal text. */
+.doc-sheet-shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    transparent 40%,
+    rgba(255, 214, 156, 0.09) 50%,
+    transparent 60%,
+    transparent 100%
+  );
+  background-size: 250% 100%;
+  animation: doc-sheet-sweep 2.6s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes doc-sheet-sweep {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-sheet-shine {
+    animation: none;
+  }
 }

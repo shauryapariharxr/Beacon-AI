@@ -3,18 +3,19 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   ArrowUp,
-  ImagePlus,
+  FileText,
   LogOut,
-  ChevronDown,
   Menu,
   Paperclip,
-  FileText,
   Trash2,
   X,
   Loader2,
+  Plus,
+  Zap,
+  ClipboardPaste,
 } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
-import { ImageGeneratingBubble } from "./ImageGeneratingBubble";
+import { DocumentGeneratingBubble } from "./DocumentGeneratingBubble";
 import { BotAvatar } from "./BotAvatar";
 import { Avatar } from "./Avatar";
 import { ModelSelector } from "./ModelSelector";
@@ -23,6 +24,7 @@ import { MODELS, ModelKey } from "@/lib/models";
 
 type Msg = { role: "user" | "assistant"; content: string };
 type DocInfo = { id: string; filename: string; chunkCount: number; status: string; error?: string | null };
+
 
 export function ChatWindow({
   isAuthed,
@@ -55,6 +57,9 @@ export function ChatWindow({
   const [error, setError] = useState<string | null>(null);
   const [convoId, setConvoId] = useState<string | undefined>(conversationId);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  // The model chip owns its own menu, but the empty-state shortcut needs to
+  // open it too, so the open flag lives here.
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   // RAG: documents list, which docs are pinned to this chat, and upload state.
   const [docs, setDocs] = useState<DocInfo[]>([]);
   const [docsOpen, setDocsOpen] = useState(false);
@@ -64,16 +69,13 @@ export function ChatWindow({
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState("");
   const [pasteText, setPasteText] = useState("");
-  // Reference images for image-to-image ("make this a cartoon"): data URLs on
-  // the client; the server re-validates everything. Limits mirror
-  // src/lib/images.ts: max 3, ≤6 MB each, PNG/JPEG/WebP only.
-  const MAX_REF_IMAGES = 3;
-  const [refImages, setRefImages] = useState<string[]>([]);
-  const [refError, setRefError] = useState<string | null>(null);
-  const refInputRef = useRef<HTMLInputElement>(null);
+  // The tools menu only holds knowledge documents now: the format (PDF, Word,
+  // slides) is detected from the message on the server, so there is nothing to
+  // pick up front.
+  const [docPickerOpen, setDocPickerOpen] = useState(false);
   // What the empty trailing assistant bubble is waiting on: a text stream
-  // (dots) or an image generation (dot-matrix placeholder).
-  const [pendingKind, setPendingKind] = useState<"chat" | "image">("chat");
+  // (dots) or a document generation (paper + dots placeholder).
+  const [pendingKind, setPendingKind] = useState<"chat" | "doc">("chat");
   // Filenames the server actually retrieved for the latest reply (X-Rag-Docs).
   const [ragNote, setRagNote] = useState<string | null>(null);
   // Logging out is one confirm away: a stray tap on the avatar used to end
@@ -257,36 +259,30 @@ export function ChatWindow({
   }
 
 /**
- * Client mirror of src/lib/images.ts's isImageGenRequest, so the placeholder
- * can switch to the image animation without waiting for the server. A miss
- * here only picks the wrong idle animation briefly. Keep in sync by hand.
+ * Client mirror of src/lib/documents.ts's isDocumentRequest, so the composer
+ * can switch the placeholder to the document animation without waiting for
+ * the server. A miss here only picks the wrong idle animation briefly. Keep
+ * in sync by hand with the server-side regexes.
  */
-function looksLikeImageRequest(text: string): boolean {
+function looksLikeDocumentRequest(text: string): boolean {
   if (!text || text.length > 500) return false;
+  const probe = text.trim();
   const CREATION =
-    /\b(draw|draws|drawing|generate|creates?|make|makes?|making|paint|paints?|painting|design|renders?|imagine|imagines?|sketch|sketches?|illustrate|illustration|show)\b/i;
-  const VISUAL =
-    /\b(image|images|illustration|illustrations|picture|pictures|pic|pics|photo|photos|photograph|artwork|poster|posters|logo|wallpaper|painting|sketch|sketche?s?|icon|icons|banner|stickers?|chart|diagram|drawing|art|portrait|scene|comic|cartoon|clipart|thumbnail|flyer|invitation)\b/i;
-  const brackets = text.match(/\[(.*?)\]/)?.[1];
-  const probe = brackets || text;
-  return CREATION.test(probe) && VISUAL.test(probe);
-}
-
-/** Read picked files into data URLs for the composer's preview chips. */
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(file);
-  });
+    /\b(create|creates?|creating|generate|generates?|generating|make|makes?|making|write|writes?|writing|draft|drafts?|prepare|prepares?|produce|build|design|compose|bana|banao|banado|banade|likh|likho|likhdo|dedo)\b/i;
+  const DOC_NOUN =
+    /\b(pdfs?|word|docx?|document|documents|docs|report|reports|essay|essays|letter|letters|resume|cvs?|presentation|presentations|slides?|powerpoint|ppts?|pptx|assignment|assignments|proposal|proposals|agenda|minutes|summary|summaries|whitepaper|brochure|newsletter|assignment|cover\s*letter|note|notes|guide|paper)\b/i;
+  if (
+    /^(how|why|when|where|who|is|are|can|could|should|does|do|did|explain|define|differen\w+)/i.test(probe) &&
+    !CREATION.test(probe)
+  ) {
+    return false;
+  }
+  return CREATION.test(probe) && DOC_NOUN.test(probe);
 }
 
   async function send() {
     const text = input.trim();
-    // Images alone are enough: an empty message with a picture attached means
-    // "edit this picture" — the server accepts exactly that shape too.
-    if ((!text && refImages.length === 0) || sending) return;
+    if (!text || sending) return;
     setRagNote(null);
     // Belt-and-braces client guard; the API enforces this for real.
     if (!isAuthed && model !== "flash") {
@@ -294,28 +290,20 @@ function readFileAsDataUrl(file: File): Promise<string> {
       return;
     }
     setError(null);
-    setRefError(null);
-    // Snapshot attachments before clearing: the request body, the optimistic
-    // bubble and the pending-kind choice all need them.
-    const refs = refImages;
     setInput("");
-    setRefImages([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     // We're sending — definitely want to watch the reply stream in.
     isPinnedRef.current = true;
     setShowJump(false);
-    // The user bubble shows attached images inline by rendering the same
-    // markdown shape the server persists — MessageBubble parses it back out
-    // there, so the optimistic view and the reloaded conversation match.
-    const refMarkdown = refs.map((src) => `![Uploaded image](${src})`).join("\n\n");
     setMessages((m) => [
       ...m,
-      { role: "user", content: [text, refMarkdown].filter(Boolean).join("\n\n") },
+      { role: "user", content: text },
       { role: "assistant", content: "" },
     ]);
     // Chosen before the fetch so the empty assistant bubble shows the right
-    // placeholder immediately.
-    setPendingKind(refs.length > 0 || looksLikeImageRequest(text) ? "image" : "chat");
+    // placeholder immediately. A picked non-auto format forces a document
+    // regardless of wording, like the server does.
+    setPendingKind(looksLikeDocumentRequest(text) ? "doc" : "chat");
     setSending(true);
     const gen = ++streamGenRef.current;
     activeStreamGenRef.current = gen;
@@ -330,8 +318,8 @@ function readFileAsDataUrl(file: File): Promise<string> {
           conversationId: convoId,
           // Pinned documents scope retrieval to those files; empty = all docs.
           documentIds: isAuthed && pinnedIds.length ? pinnedIds : undefined,
-          // Reference images for image-to-image editing (data URLs).
-          images: refs.length ? refs : undefined,
+          // Set only when the format picker chose one — the server then treats
+          // this turn as a document no matter how it's worded.
           // Guests have no server-side history, so carry the last few turns
           // from local state — this is what gives the AI its memory.
           guestHistory: isAuthed
@@ -424,38 +412,6 @@ function readFileAsDataUrl(file: File): Promise<string> {
     (userEmail ? userEmail.split("@")[0] : "");
 
   // Hidden file input lives at the component root level.
-  /**
-   * Validate + stage picked images as preview chips. Over-budget files are
-   * rejected with a readable reason instead of silently disappearing.
-   */
-  function handlePickRefImages(files: FileList) {
-    const room = MAX_REF_IMAGES - refImages.length;
-    if (room <= 0) return;
-    setRefError(null);
-    const picked = Array.from(files).slice(0, room);
-    const ok: File[] = [];
-    for (const f of picked) {
-      if (!/^image\/(png|jpeg|webp)$/.test(f.type)) {
-        setRefError("Only PNG, JPEG or WebP images can be attached.");
-        continue;
-      }
-      if (f.size > 6 * 1024 * 1024) {
-        setRefError("That image is over 6 MB — try a smaller one.");
-        continue;
-      }
-      ok.push(f);
-    }
-    if (!ok.length) return;
-    Promise.all(ok.map(readFileAsDataUrl))
-      .then((urls) => setRefImages((v) => [...v, ...urls].slice(0, MAX_REF_IMAGES)))
-      .catch(() => setRefError("Couldn't read that image — try a different file."));
-  }
-
-  function removeRefImage(index: number) {
-    setRefImages((v) => v.filter((_, i) => i !== index));
-  }
-
-  // Hidden file input lives at the component root level.
   const fileInput = (
     <input
       ref={fileInputRef}
@@ -470,59 +426,77 @@ function readFileAsDataUrl(file: File): Promise<string> {
     />
   );
 
-  // Second hidden input for image attachments — different file types, and
-  // a different purpose from the documents picker above.
-  const refInput = (
-    <input
-      ref={refInputRef}
-      type="file"
-      accept="image/png,image/jpeg,image/webp"
-      multiple
-      className="hidden"
-      onChange={(e) => {
-        if (e.target.files?.length) handlePickRefImages(e.target.files);
-        e.target.value = "";
-      }}
-    />
-  );
+  // Mobile chrome floats over the conversation instead of taking a strip of
+  // height: a round menu disc on the left, the profile photo on the right
+  // (replacing the old text bar + chevron). Desktop gets both from the
+  // sidebar, so this whole layer is hidden at md and up.
+  const showMobileHeader = Boolean(onOpenSidebar) || Boolean(isAuthed && userEmail);
 
-  // The tool row is only worth its height when it actually holds something:
-  // with the model picker moved into the composer, a signed-out visitor has
-  // neither a menu button nor an account menu, and used to get a bare 24px
-  // strip with a border and nothing in it.
-  const showToolRow = Boolean(onOpenSidebar) || Boolean(isAuthed && userEmail);
+  // Empty-state shortcuts: the tools that otherwise hide behind the "+" menu
+  // or the model chip, surfaced as one-tap commands instead of sample prompts.
+  const commandRows = [
+    ...(isAuthed
+      ? [
+          {
+            icon: Paperclip,
+            label: "Attach a PDF to this chat",
+            run: () => {
+              setDocsOpen(true);
+              fileInputRef.current?.click();
+            },
+          },
+          {
+            icon: ClipboardPaste,
+            label: "Paste notes as context",
+            run: () => {
+              setDocsOpen(true);
+              setPasteOpen(true);
+            },
+          },
+        ]
+      : []),
+    {
+      icon: Zap,
+      label: "Switch model",
+      run: () => setModelMenuOpen(true),
+    },
+  ];
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="relative flex flex-col h-full">
       {fileInput}
-      {refInput}
-      {showToolRow && (
-      <div className="shrink-0 flex justify-between items-center px-4 py-3 gap-2 border-b border-white/[0.06]">
-        <div className="flex items-center gap-2 min-w-0">
-          {onOpenSidebar && (
+      {showMobileHeader && (
+        <div className="md:hidden absolute inset-x-0 top-0 z-30 flex items-center justify-between px-3 pt-safe pb-2 pointer-events-none">
+          {onOpenSidebar ? (
             <button
               onClick={onOpenSidebar}
-              className="md:hidden p-2 -ml-1.5 rounded-lg text-muted hover:text-ink hover:bg-white/[0.06] transition-colors"
               aria-label="Open menu"
+              className="pointer-events-auto w-10 h-10 rounded-full bg-[#2f2f2f]/90 backdrop-blur flex items-center justify-center text-ink shadow-lg shadow-black/30 hover:bg-[#3a3a3a] active:scale-95 transition-all"
             >
               <Menu className="w-5 h-5" />
             </button>
+          ) : (
+            <span />
           )}
-        </div>
-        <div className="flex items-center gap-2">
           {isAuthed && userEmail && (
-            <div className="relative">
+            <div className="relative pointer-events-auto">
               <button
                 onClick={() => setUserMenuOpen((v) => !v)}
-                className="flex items-center gap-1 hover:opacity-90 transition-opacity"
+                aria-label="Account menu"
+                aria-expanded={userMenuOpen}
+                className="w-10 h-10 rounded-full bg-[#2f2f2f]/90 backdrop-blur flex items-center justify-center shadow-lg shadow-black/30 hover:bg-[#3a3a3a] active:scale-95 transition-all ring-1 ring-white/10"
               >
                 <Avatar url={avatarUrl} name={displayName} size={32} />
-                <ChevronDown className="w-3.5 h-3.5 text-muted" />
               </button>
               {userMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
-                  <div className="absolute right-0 top-full mt-2 w-44 glass-strong rounded-xl p-1.5 z-50 animate-pop-in">
+                  <div className="absolute right-0 top-full mt-2 w-56 glass-strong rounded-xl p-1.5 z-50 animate-pop-in">
+                    <div className="px-3 py-2 min-w-0">
+                      <div className="text-sm text-ink truncate capitalize">{displayName}</div>
+                      <div className="text-[11px] text-muted truncate">{userEmail}</div>
+                    </div>
+                    <div className="my-1 h-px bg-white/[0.07]" />
                     <button
                       onClick={() => {
                         setUserMenuOpen(false);
@@ -539,43 +513,35 @@ function readFileAsDataUrl(file: File): Promise<string> {
             </div>
           )}
         </div>
-      </div>
       )}
 
       <div className="relative flex-1 min-h-0">
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="h-full overflow-y-auto px-4 py-6 space-y-4"
+          className="h-full overflow-y-auto px-4 pt-20 pb-6 md:pt-6 md:px-6 space-y-4"
         >
         {messages.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center text-center gap-3 px-4">
-            <BotAvatar size={56} className="mb-1" />
-            {isAuthed && displayName ? (
-              <>
-                <div className="font-serif font-bold text-2xl md:text-3xl text-ink capitalize">
-                  Welcome back, {displayName}
-                </div>
-                <p className="text-muted text-sm">Pick a model and start a new conversation.</p>
-              </>
-            ) : (
-              <>
-                <div className="font-serif font-bold text-3xl md:text-4xl text-ink max-w-lg">
-                  Your free AI study buddy
-                </div>
-                <div className="glass rounded-xl px-4 py-3 text-sm text-muted max-w-sm mt-1">
-                  Chatting as guest. Sign up to save your conversations.
-                </div>
-              </>
-            )}
+          <div className="h-full flex flex-col items-center justify-center text-center px-4 pb-16">
+            <BotAvatar size={44} className="mb-4 opacity-90" />
+            <h1 className="font-serif font-semibold text-[26px] md:text-[32px] text-ink leading-tight max-w-xl">
+              {isAuthed && displayName
+                ? `What should we work on, ${displayName}?`
+                : "What can I help you with?"}
+            </h1>
+            <p className="text-muted text-sm mt-2 max-w-sm">
+              {isAuthed
+                ? "Ask anything, or start from a suggestion below."
+                : "Chatting as guest — sign up to keep your conversations."}
+            </p>
           </div>
         )}
         {messages.map((m, i) => {
           const isLastAssistant = i === messages.length - 1 && m.role === "assistant";
           const isThinking = sending && isLastAssistant && !m.content;
           if (isThinking) {
-            if (pendingKind === "image") {
-              return <ImageGeneratingBubble key={i} />;
+            if (pendingKind === "doc") {
+              return <DocumentGeneratingBubble key={i} />;
             }
             return (
               <div key={i} className="flex items-center gap-2.5 max-w-[85%] animate-msg-in">
@@ -622,7 +588,21 @@ function readFileAsDataUrl(file: File): Promise<string> {
       </div>
 
       <div className="shrink-0 p-3 md:p-4 pb-safe">
-        <div className="max-w-4xl mx-auto w-full">
+        <div className="max-w-3xl mx-auto w-full">
+          {messages.length === 0 && !conversationId && commandRows.length > 0 && (
+            <div className="mb-3">
+              {commandRows.map(({ icon: Icon, label, run }) => (
+                <button
+                  key={label}
+                  onClick={run}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-[15px] text-ink/90 hover:bg-white/[0.05] transition-colors"
+                >
+                  <Icon className="w-5 h-5 shrink-0 text-muted" strokeWidth={1.8} />
+                  <span className="truncate">{label}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {/* Documents drawer — uploads, paste-notes, pin-to-chat */}
           {isAuthed && docsOpen && (
             <div className="glass-strong rounded-2xl p-3 mb-2 animate-pop-in">
@@ -739,32 +719,50 @@ function readFileAsDataUrl(file: File): Promise<string> {
               </div>
             </div>
           )}
-          {/* Composer: the text field owns the row, and the controls sit under
-              it — model on the left, send on the right — so the box reads as
-              one input rather than a toolbar with a textarea in it. */}
-          <div className="glass-strong rounded-2xl p-2.5">
-            {refImages.length > 0 && (
-              <div className="flex flex-wrap gap-2 px-1 pt-1 pb-2">
-                {refImages.map((src, i) => (
-                  <div
-                    key={i}
-                    className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/15"
-                  >
-                    <img src={src} alt="" className="w-full h-full object-cover" />
+          {/* Composer: one rounded pill instead of a card with a toolbar
+              underneath. The + holds the creation tools (document formats and
+              knowledge uploads); the send disc is the only accented control. */}
+          <div className="flex items-end gap-1.5 rounded-[28px] border border-white/[0.10] bg-[#1c1c1d] px-2 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.35)] focus-within:border-white/[0.22] transition-colors">
+            {isAuthed && (
+            <div className="relative shrink-0 self-center">
+              <button
+                onClick={() => setDocPickerOpen((v) => !v)}
+                aria-label="Add files and tools"
+                aria-expanded={docPickerOpen}
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                  docPickerOpen
+                    ? "bg-white/[0.10] text-ink"
+                    : "text-muted hover:text-ink hover:bg-white/[0.06]"
+                }`}
+              >
+                <Plus className={`w-5 h-5 transition-transform ${docPickerOpen ? "rotate-45" : ""}`} />
+              </button>
+              {docPickerOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setDocPickerOpen(false)} />
+                  <div className="absolute bottom-full mb-3 left-0 w-64 glass-strong rounded-2xl p-2 z-50 animate-pop-in">
+                    <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+                      Knowledge
+                    </p>
                     <button
-                      onClick={() => removeRefImage(i)}
-                      aria-label="Remove image"
-                      className="absolute top-1 right-1 rounded-full bg-black/70 p-0.5 text-white/90 hover:text-white transition-colors"
+                      onClick={() => {
+                        setDocPickerOpen(false);
+                        setDocsOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2 px-1.5 py-2 rounded-lg text-sm text-ink hover:bg-white/[0.06] transition-colors"
                     >
-                      <X className="w-3 h-3" strokeWidth={2.5} />
+                      <FileText className="w-4 h-4 shrink-0 opacity-70" />
+                      <span className="flex-1 text-left">Your documents</span>
+                      <span className="text-[11px] text-muted">
+                        {pinnedIds.length > 0 ? `${pinnedIds.length} pinned` : "Upload, paste"}
+                      </span>
                     </button>
                   </div>
-                ))}
-              </div>
+                </>
+              )}
+            </div>
             )}
-            {refError && (
-              <div className="px-1 pb-1.5 text-xs text-amber-300">{refError}</div>
-            )}
+
             <textarea
               ref={textareaRef}
               value={input}
@@ -787,59 +785,40 @@ function readFileAsDataUrl(file: File): Promise<string> {
                   send();
                 }
               }}
-              placeholder="Ask anything..."
+              placeholder="Ask anything…"
               rows={1}
-              className="w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-[15px] focus:outline-none placeholder:text-muted"
+              className="flex-1 min-w-0 self-center resize-none bg-transparent px-1 py-2 max-h-[140px] text-[15px] leading-relaxed focus:outline-none placeholder:text-muted"
             />
-            <div className="flex items-center justify-between gap-2 mt-0.5">
-              <div className="flex items-center gap-1 min-w-0">
-                <button
-                  onClick={() => refInputRef.current?.click()}
-                  disabled={sending || refImages.length >= MAX_REF_IMAGES}
-                  aria-label="Attach an image"
-                  title="Attach an image — for example “make this a cartoon”"
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-white/[0.06] transition-all shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <ImagePlus className="w-4.5 h-4.5" />
-                </button>
-                <ModelSelector value={model} onChange={setModel} isAuthed={isAuthed} dropUp />
-                {isAuthed && (
-                  <button
-                    onClick={() => setDocsOpen((v) => !v)}
-                    disabled={uploading}
-                    aria-label="Attach documents"
-                    title="Documents — upload PDFs or notes Beacon answers from"
-                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 relative ${
-                      docsOpen || pinnedIds.length
-                        ? "bg-lamp/20 text-lamp"
-                        : "text-muted hover:text-ink hover:bg-white/[0.06]"
-                    }`}
-                  >
-                    <Paperclip className="w-4.5 h-4.5" />
-                    {pinnedIds.length > 0 && (
-                      <span className="absolute translate-x-3 -translate-y-3 w-4 h-4 rounded-full bg-lamp text-[#1a1204] text-[10px] font-bold flex items-center justify-center">
-                        {pinnedIds.length}
-                      </span>
-                    )}
-                  </button>
-                )}
-              </div>
-              <button
-                onClick={send}
-                disabled={sending || (!input.trim() && refImages.length === 0)}
-                aria-label="Send"
-                className="w-9 h-9 rounded-full bg-gradient-to-br from-lamp to-orange-500 text-[#1a1204] flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 transition-all shrink-0 relative"
-              >
-                <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
-              </button>
+
+            <div className="shrink-0 self-center">
+              <ModelSelector
+                value={model}
+                onChange={setModel}
+                isAuthed={isAuthed}
+                dropUp
+                open={modelMenuOpen}
+                onOpenChange={setModelMenuOpen}
+              />
             </div>
+
+            <button
+              onClick={send}
+              disabled={sending || !input.trim()}
+              aria-label="Send"
+              className="w-9 h-9 shrink-0 self-center rounded-full bg-lamp text-[#1a1204] flex items-center justify-center disabled:opacity-35 disabled:cursor-not-allowed hover:brightness-105 active:scale-95 transition-all"
+            >
+              <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
+            </button>
           </div>
-          <div className="text-xs text-muted mt-2 px-1 flex items-center gap-2 flex-wrap">
-            <span>
-              Using <span className="text-lamp">{MODELS[model].label}</span>
-            </span>
+          <div className="mt-2 px-1 flex items-center justify-center gap-1.5 flex-wrap text-center text-[11px] text-muted">
+            <span>{MODELS[model].label}</span>
+            <span className="opacity-40">·</span>
+            <span>Beacon can make mistakes — check anything important.</span>
             {ragNote && (
-              <span className="text-lamp/90">· {ragNote}</span>
+              <>
+                <span className="opacity-40">·</span>
+                <span className="text-lamp/90">{ragNote}</span>
+              </>
             )}
           </div>
         </div>

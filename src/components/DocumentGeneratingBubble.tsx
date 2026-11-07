@@ -4,14 +4,13 @@ import { useState, useEffect } from "react";
 import { BotAvatar } from "./BotAvatar";
 
 /**
- * Floating-dot generation placeholder. The old version was a fixed dot
- * matrix under a sweeping sheen on an opaque near-black panel — the
- * backdrop read as a cheap terminal block against the chat surface. This
- * version drops the backdrop entirely (the dots sit straight on the
- * message bubble) and lets the dots drift and pulse individually, like a
- * tray of beads settling. Image generation takes 5–90s and streams no
- * visible progress, so this plus the corner % pill is the honest feedback
- * the user gets.
+ * Document-generation placeholder. Reuses the floating-dot field the image
+ * feature used (the classes live in globals.css), but the backdrop panel is
+ * gone — the dots sit on the message bubble, and the paper outline pulses
+ * behind them so the wait reads as "a page is being laid out", not a black
+ * terminal block. Drafting + rendering can take 10–90s with no visible
+ * progress, so this plus the corner % pill is the honest feedback the user
+ * gets until the real file card streams in.
  */
 
 const COLS = 12;
@@ -22,27 +21,26 @@ const ROWS = 8;
 // duration, phase and size so the field never moves in lockstep.
 function dotMeta(i: number) {
   return {
-    dur: 2.8 + ((i * 7) % 30) / 10,        // 2.8s – 5.7s
-    delay: -(((i * 13) % 46) / 10),        // negative phase offsets the start
-    size: 3.5 + ((i * 3) % 4) * 0.75,      // 3.5px – 5.75px
-    warm: i % 3 === 0,                      // every third dot leans amber
+    dur: 2.8 + ((i * 7) % 30) / 10,
+    delay: -(((i * 13) % 46) / 10),
+    size: 3.5 + ((i * 3) % 4) * 0.75,
+    warm: i % 3 === 0,
   };
 }
 
-// The levelling curve: fast at first (results often land in ~10s), then
-// creeping toward 95% so the number never lies about completion — the pill
-// disappears entirely the moment the real image streams in.
+// Levelling curve mirrors the old image bubble: quick early steps, then a
+// crawl toward 95% so the number never lies about completion.
 function tick(current: number, elapsedS: number): number {
   if (current >= 95) return 95;
   const step =
-    elapsedS < 5 ? 7 :
-    elapsedS < 15 ? 3 :
-    elapsedS < 40 ? 1.5 :
-    0.6;
+    elapsedS < 5 ? 6 :
+    elapsedS < 15 ? 2.5 :
+    elapsedS < 40 ? 1.2 :
+    0.5;
   return Math.min(95, Math.round(current + step));
 }
 
-export function ImageGeneratingBubble() {
+export function DocumentGeneratingBubble() {
   const [percent, setPercent] = useState(3);
 
   useEffect(() => {
@@ -60,17 +58,19 @@ export function ImageGeneratingBubble() {
     <div
       className="flex justify-start items-start gap-2.5 animate-msg-in"
       aria-live="polite"
-      aria-label="Generating an image"
+      aria-label="Generating a document"
     >
       <BotAvatar className="mt-0.5" />
       <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-white/[0.10] bg-white/[0.02] p-3">
         <div
-          className="image-dots-field"
+          className="doc-dots-field relative rounded-xl border border-white/[0.08]"
           style={{
             width: "min(420px, calc(100vw - 120px))",
             aspectRatio: `${COLS} / ${ROWS}`,
           }}
         >
+          {/* Paper-sheet shimmer: a soft column sweep behind the dots. */}
+          <div className="doc-sheet-shine" />
           {dots.map(({ i, dur, delay, size, warm }) => (
             <span
               key={i}
@@ -86,9 +86,7 @@ export function ImageGeneratingBubble() {
           ))}
         </div>
         <div className="mt-2.5 flex items-center gap-2 px-1">
-          <span className="text-xs text-muted">
-            Creating your image…
-          </span>
+          <span className="text-xs text-muted">Creating your document…</span>
           <span className="ml-auto pill-progress font-mono text-[11px] text-lamp tabular-nums">
             {percent}%
           </span>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { conversations, messages } from "@/lib/schema";
+import { conversations, messages, generatedFiles } from "@/lib/schema";
 import { eq, asc, and } from "drizzle-orm";
 import { getSessionUserId } from "@/lib/auth";
 
@@ -51,11 +51,13 @@ export async function DELETE(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // Delete messages first, then the conversation itself. Sequential awaits
-    // used to run these as two separate transactions: a crash between them
-    // (or a concurrent read) could see a conversation with no messages, or
-    // orphaned messages. One transaction makes removal all-or-nothing.
+    // Delete messages and generated files first, then the conversation itself.
+    // Sequential awaits used to run these as two separate transactions: a crash
+    // between them (or a concurrent read) could see a conversation with no
+    // messages, or orphaned rows. Generated files are keyed by conversation, so
+    // they are removed here too instead of being stranded with the chat gone.
     await db.transaction(async (tx) => {
+      await tx.delete(generatedFiles).where(eq(generatedFiles.conversationId, params.id));
       await tx.delete(messages).where(eq(messages.conversationId, params.id));
       await tx.delete(conversations).where(eq(conversations.id, params.id));
     });
